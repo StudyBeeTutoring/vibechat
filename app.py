@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime
 from sqlalchemy import text
 import time
+from streamlit_autorefresh import st_autorefresh # <- ADD THIS IMPORT
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -12,7 +13,6 @@ st.set_page_config(
 
 # --- DATABASE SETUP ---
 # Establishes a connection to a local SQLite database file.
-# The 'ttl=0' argument ensures that we always get the latest data from the DB.
 conn = st.connection("chat_db", type="sql", url="sqlite:///chat.db", ttl=0)
 
 def init_db():
@@ -34,7 +34,6 @@ def login_screen():
     st.header("Welcome to the Global Chat Room 🌍")
     st.write("Please enter a username to join the chat.")
     
-    # Using a form to prevent rerun on every character input
     with st.form("login_form"):
         username = st.text_input("Username", key="username_input", placeholder="e.g., ChattyCathy")
         submitted = st.form_submit_button("Join Chat")
@@ -45,30 +44,40 @@ def login_screen():
             else:
                 st.session_state.username = username
                 st.success(f"Welcome, {username}! You can now start chatting.")
-                time.sleep(1) # Brief pause to show success message
+                time.sleep(1)
                 st.rerun()
 
 # --- MAIN CHAT INTERFACE ---
 def chat_interface():
     """Displays the main chat interface and handles sending/receiving messages."""
+
+    # --- AUTO-REFRESH ---
+    # This is the magic part! It will rerun the script every 2 seconds.
+    # The key provides a unique identity for this component.
+    # A smaller interval (e.g., 1000ms) means faster updates but more server load.
+    st_autorefresh(interval=2000, limit=None, key="chat_autorefresh") # <- ADD THIS LINE
+
     st.title("💬 Streamlit Global Chat")
     st.caption(f"Logged in as: **{st.session_state.username}**")
 
     # --- MESSAGE DISPLAY ---
-    # Query all messages from the database, ordered by time.
+    # This block now runs every 2 seconds automatically.
     messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
 
-    # Display each message in the chat
-    for _, row in messages_df.iterrows():
-        with st.chat_message(name=row["username"]):
-            st.markdown(f"**{row['username']}**")
-            st.write(row["message"])
-            st.caption(f"_{row['timestamp']}_")
+    # Use a container for messages to potentially optimize rendering
+    chat_container = st.container()
+    with chat_container:
+        for _, row in messages_df.iterrows():
+            # Use a unique key for each message to help Streamlit with rendering
+            with st.chat_message(name=row["username"], avatar="👤"):
+                st.markdown(f"**{row['username']}**")
+                st.write(row["message"])
+                # Formatting the timestamp for better readability
+                ts = pd.to_datetime(row["timestamp"])
+                st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
 
     # --- MESSAGE INPUT ---
-    # `st.chat_input` is a special widget that stays at the bottom.
     if prompt := st.chat_input("Say something..."):
-        # When a new message is sent, add it to the database.
         with conn.session as s:
             s.execute(
                 text("INSERT INTO messages (username, message, timestamp) VALUES (:user, :msg, :ts);"),
@@ -79,14 +88,12 @@ def chat_interface():
                 )
             )
             s.commit()
-        # Rerun the app to display the new message immediately.
-        st.rerun()
+        # No need to call st.rerun() here, as the autorefresh will handle it.
+        # The new message will appear on the next 2-second interval.
 
 # --- APP LOGIC ---
-# Initialize the database on first run.
 init_db()
 
-# Check if the user is logged in.
 if 'username' not in st.session_state:
     login_screen()
 else:
