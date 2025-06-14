@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 # --- CONFIGURATION ---
 SUPER_ADMIN_USERNAME = "admin"
 SUPER_ADMIN_DEFAULT_PASS = "admin123"
-APP_SALT = "a_super_secret_salt_for_your_app_v2" # IMPORTANT: Change this
+APP_SALT = "a_super_secret_salt_for_your_app_v2"
 
 AVATARS = {
     "Cat": "🐱", "Dog": "🐶", "Fox": "🦊", "Bear": "🐻",
@@ -74,10 +74,6 @@ def get_location_component():
         </script>""", height=0)
 
 # --- UI SCREENS ---
-# show_welcome_screen, show_login_screen, show_register_screen, show_guest_setup_screen are the same as before.
-# For brevity, I'll only include the main show_chat_screen and the new change_password form.
-# You can copy the previous versions of the other screens.
-
 def show_welcome_screen():
     st.title("Welcome to the Advanced Chat App 🌐")
     col1, col2, col3 = st.columns(3)
@@ -100,7 +96,6 @@ def show_login_screen():
                 st.session_state.avatar = user.avatar
                 st.session_state.role = user.role
                 st.session_state.screen = "chat"
-                # --- NEW/IMPROVED --- Check if admin is using default password
                 if user.role == 'admin' and verify_password(user.hashed_password, SUPER_ADMIN_DEFAULT_PASS):
                     st.session_state.admin_using_default_pass = True
                 st.success("Login successful!"); time.sleep(1); st.rerun()
@@ -140,8 +135,6 @@ def show_guest_setup_screen():
                 st.session_state.logged_in = True; st.session_state.username = f"{username} (Guest)"; st.session_state.avatar = AVATARS[avatar_label]; st.session_state.role = "guest"; st.session_state.screen = "chat"; st.rerun()
     if st.button("← Back to Welcome"): st.session_state.screen = "welcome"; st.rerun()
 
-
-# --- NEW/IMPROVED --- Dedicated form for changing password
 def show_change_password_form():
     st.subheader("🔑 Change Password")
     with st.form("change_password_form"):
@@ -149,37 +142,24 @@ def show_change_password_form():
         new_password = st.text_input("New Password", type="password")
         confirm_password = st.text_input("Confirm New Password", type="password")
         submitted = st.form_submit_button("Change Password")
-
         if submitted:
             with conn.session as s:
                 user = s.execute(text("SELECT hashed_password FROM users WHERE username = :u"), params=dict(u=st.session_state.username)).fetchone()
-            
-            if not verify_password(user.hashed_password, current_password):
-                st.error("Current password is incorrect.")
-            elif new_password != confirm_password:
-                st.error("New passwords do not match.")
-            elif len(new_password) < 6:
-                st.error("New password must be at least 6 characters long.")
+            if not verify_password(user.hashed_password, current_password): st.error("Current password is incorrect.")
+            elif new_password != confirm_password: st.error("New passwords do not match.")
+            elif len(new_password) < 6: st.error("New password must be at least 6 characters long.")
             else:
                 new_hashed_password = hash_password(new_password)
                 with conn.session as s:
-                    s.execute(
-                        text("UPDATE users SET hashed_password = :hp WHERE username = :u"),
-                        params=dict(hp=new_hashed_password, u=st.session_state.username)
-                    )
-                    s.commit()
+                    s.execute(text("UPDATE users SET hashed_password = :hp WHERE username = :u"), params=dict(hp=new_hashed_password, u=st.session_state.username)); s.commit()
                 st.success("Password changed successfully!")
-                st.session_state.admin_using_default_pass = False # Reset the warning flag
+                st.session_state.admin_using_default_pass = False
                 time.sleep(1); st.rerun()
-
 
 def show_chat_screen():
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
-
-    # --- NEW/IMPROVED --- Persistent warning for admin
     if st.session_state.get("admin_using_default_pass", False):
         st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it immediately in the sidebar.", icon="⚠️")
-
     with st.sidebar:
         st.title(f"{st.session_state.avatar} {st.session_state.username}")
         st.caption(f"Role: {st.session_state.role.capitalize()}")
@@ -191,7 +171,6 @@ def show_chat_screen():
         st.warning("This shares your location with all users. Use with caution.")
         if st.button("Update My Location", use_container_width=True):
             st.session_state.get_location = True
-        
         if st.session_state.role == 'admin':
             st.divider()
             with st.expander("Admin Controls"):
@@ -200,13 +179,17 @@ def show_chat_screen():
                     with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
                     st.toast("Chat history cleared!"); st.rerun()
             st.divider()
-            show_change_password_form() # Display the new form for the admin
+            show_change_password_form()
 
-    # ... (Rest of the chat screen logic is the same)
     if st.session_state.get('get_location', False):
         location_data = get_location_component()
         if location_data:
-            with conn.session as s: s.execute(text("INSERT INTO user_locations (username, lat, lon, timestamp) VALUES (:u, :lat, :lon, :ts)"), params=dict(u=st.session_state.username, lat=location_data['lat'], lon=location_data['lon'], ts=datetime.now())); s.commit()
+            # The component returns a JSON string, so we must parse it
+            location_data = json.loads(location_data)
+            with conn.session as s:
+                s.execute(text("INSERT INTO user_locations (username, lat, lon, timestamp) VALUES (:u, :lat, :lon, :ts)"),
+                          params=dict(u=st.session_state.username, lat=location_data['lat'], lon=location_data['lon'], ts=datetime.now()))
+                s.commit()
             st.toast(f"Location updated: {location_data['lat']:.4f}, {location_data['lon']:.4f}")
             st.session_state.get_location = False
 
@@ -220,14 +203,18 @@ def show_chat_screen():
                 ts = pd.to_datetime(row["timestamp"])
                 st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
         if prompt := st.chat_input("Say something..."):
-            with conn.session as s: s.execute(text("INSERT INTO messages (username, avatar, message, timestamp) VALUES (:u, :a, :m, :ts);"), params=dict(u=st.session_state.username, a=st.session_state.avatar, m=prompt, ts=datetime.now())); s.commit()
+            with conn.session as s:
+                s.execute(text("INSERT INTO messages (username, avatar, message, timestamp) VALUES (:u, :a, :m, :ts);"),
+                          params=dict(u=st.session_state.username, a=st.session_state.avatar, m=prompt, ts=datetime.now()))
+                s.commit()
             st.rerun()
     with tab2:
         st.header("User Location Map")
         locations_df = conn.query("""SELECT username, lat, lon FROM user_locations WHERE id IN (SELECT MAX(id) FROM user_locations GROUP BY username);""", ttl=10)
-        if not locations_df.empty: st.map(locations_df)
-        else: st.info("No user locations have been shared yet.")
-
+        if not locations_df.empty:
+            st.map(locations_df)
+        else:
+            st.info("No user locations have been shared yet.")
 
 # --- MAIN APP ROUTER ---
 init_db()
