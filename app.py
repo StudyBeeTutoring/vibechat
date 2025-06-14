@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
 import random
-import sqlite3
+from sqlalchemy import text # <- ADD THIS IMPORT
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -14,13 +14,13 @@ st.set_page_config(
 )
 
 # --- DATABASE SETUP ---
-# Connect to SQLite database. It will be created if it doesn't exist.
 conn = st.connection("food_db", type="sql", url="sqlite:///food_go.db")
 
 def init_db():
     """Initialize the database tables if they don't exist."""
     with conn.session as s:
-        s.execute("""
+        # <- WRAP ALL s.execute() calls with text()
+        s.execute(text("""
             CREATE TABLE IF NOT EXISTS user_profile (
                 id INTEGER PRIMARY KEY,
                 trainer_level INTEGER DEFAULT 1,
@@ -33,8 +33,8 @@ def init_db():
                 buddy_name TEXT DEFAULT 'Fruity',
                 onboarded BOOLEAN DEFAULT FALSE
             );
-        """)
-        s.execute("""
+        """))
+        s.execute(text("""
             CREATE TABLE IF NOT EXISTS food_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp DATETIME,
@@ -43,27 +43,27 @@ def init_db():
                 calories INTEGER,
                 xp INTEGER
             );
-        """)
-        s.execute("""
+        """))
+        s.execute(text("""
             CREATE TABLE IF NOT EXISTS food_dex (
                 name TEXT PRIMARY KEY
             );
-        """)
-        s.execute("""
+        """))
+        s.execute(text("""
             CREATE TABLE IF NOT EXISTS badges (
                 name TEXT PRIMARY KEY,
                 emoji TEXT,
                 description TEXT,
                 earned_on DATE
             );
-        """)
-        # Ensure a default user profile exists
-        user_profile = s.execute("SELECT * FROM user_profile WHERE id = 1;").fetchone()
+        """))
+        # Check for user profile
+        user_profile = s.execute(text("SELECT * FROM user_profile WHERE id = 1;")).fetchone()
         if not user_profile:
-            s.execute("INSERT INTO user_profile (id) VALUES (1);")
-            s.commit()
+            s.execute(text("INSERT INTO user_profile (id) VALUES (1);"))
+        s.commit()
 
-# --- GAME & UI ELEMENTS ---
+# --- GAME & UI ELEMENTS (No changes here) ---
 FOOD_TYPES = {
     "Fruit": {"emoji": "🍎", "color": "#78C850", "xp": 20},
     "Vegetable": {"emoji": "🥦", "color": "#A040A0", "xp": 25},
@@ -84,11 +84,12 @@ BADGES = {
     "Rainbow Badge": {"emoji": "🌈", "desc": "Log a food from every type.", "check": lambda: conn.query("SELECT COUNT(DISTINCT type) FROM food_log;")['count(distinct type)'][0] >= len(FOOD_TYPES)},
     "Pioneer Badge": {"emoji": "🧭", "desc": "Log your first 10 unique foods.", "check": lambda: conn.query("SELECT COUNT(*) FROM food_dex;")['count(*)'][0] >= 10},
 }
-# (Recipes are now at the end of the file for better readability)
+# (Recipes are at the end of the file)
 
 # --- HELPER & DB FUNCTIONS ---
 def load_user_state():
     """Load user profile from DB into session state."""
+    # conn.query is fine, only s.execute needs text()
     user_data = conn.query("SELECT * FROM user_profile WHERE id = 1;", ttl=0).to_dict('records')[0]
     for key, value in user_data.items():
         st.session_state[key] = value
@@ -96,14 +97,14 @@ def load_user_state():
 def save_user_state():
     """Save relevant session state back to the DB."""
     with conn.session as s:
-        s.execute(f"""
+        s.execute(text(f"""
             UPDATE user_profile SET 
                 trainer_level = {st.session_state.trainer_level},
                 trainer_xp = {st.session_state.trainer_xp},
                 xp_to_next_level = {st.session_state.xp_to_next_level},
                 egg_progress = {st.session_state.egg_progress}
             WHERE id = 1;
-        """)
+        """))
         s.commit()
 
 def check_and_award_badges():
@@ -113,10 +114,10 @@ def check_and_award_badges():
         if name not in earned_badges:
             if data["check"]():
                 with conn.session as s:
-                    s.execute(f"""
+                    s.execute(text(f"""
                         INSERT INTO badges (name, emoji, description, earned_on) 
                         VALUES ('{name}', '{data['emoji']}', '{data['desc']}', '{datetime.now().date()}');
-                    """)
+                    """))
                     s.commit()
                 st.balloons()
                 st.success(f"🏆 You've earned the {data['emoji']} {name}! Check your Trainer Card!")
@@ -134,7 +135,6 @@ if not st.session_state.onboarded:
         buddy_name = st.selectbox("First, choose your Food Buddy!", options=BUDDIES.keys(), help="Your buddy will cheer you on!")
         unit_system = st.radio("Unit System", ("Metric (cm/kg)", "Imperial (ft/in/lbs)"))
         col1, col2 = st.columns(2)
-        # ... (rest of the form is the same)
         if unit_system == "Metric (cm/kg)":
             with col1: height_cm = st.number_input("Height (cm)", 100, 250, 170)
             with col2: weight_kg = st.number_input("Weight (kg)", 30.0, 200.0, 70.0, 0.1)
@@ -158,20 +158,21 @@ if not st.session_state.onboarded:
             target_weight = round(22 * (height_m ** 2), 1)
             target_calories = 1700 if goal == "Lose Weight" else 2300 if goal == "Gain Weight" else 2000
             
-            # Save to DB
             with conn.session as s:
-                s.execute(f"""
+                s.execute(text(f"""
                     UPDATE user_profile SET
                         bmi = {bmi}, target_weight = {target_weight}, target_calories = {target_calories},
                         buddy_name = '{buddy_name}', onboarded = TRUE
                     WHERE id = 1;
-                """)
+                """))
                 s.commit()
             st.success("Your Trainer Card is ready! Let the journey begin!")
             st.rerun()
 
 # --- MAIN APP (runs only after onboarding) ---
 else:
+    # Sidebar, Main content, Tabs... the rest of the code is unchanged.
+    # The important changes were only in the database functions.
     # --- SIDEBAR - TRAINER CARD ---
     with st.sidebar:
         st.title("Trainer Card 💳")
@@ -215,24 +216,21 @@ else:
             xp_gained = FOOD_TYPES[food_type]['xp']
             timestamp = datetime.now()
             
-            # Log food to DB
             with conn.session as s:
-                s.execute(f"""
+                s.execute(text(f"""
                     INSERT INTO food_log (timestamp, name, type, calories, xp)
                     VALUES ('{timestamp}', '{food_name.title()}', '{food_type}', {calories}, {xp_gained});
-                """)
+                """))
                 s.commit()
             
-            # Check for new dex entry
             dex_list = conn.query("SELECT name FROM food_dex;", ttl=0)['name'].tolist()
             is_new_dex_entry = food_name.title() not in dex_list
             if is_new_dex_entry:
                 with conn.session as s:
-                    s.execute(f"INSERT INTO food_dex (name) VALUES ('{food_name.title()}');")
+                    s.execute(text(f"INSERT INTO food_dex (name) VALUES ('{food_name.title()}');"))
                     s.commit()
                 xp_gained += 50
             
-            # Update XP and check for level up
             st.session_state.trainer_xp += xp_gained
             if st.session_state.trainer_xp >= st.session_state.xp_to_next_level:
                 st.session_state.trainer_level += 1
@@ -241,13 +239,13 @@ else:
                 st.balloons()
                 st.success(f"🎉 Congratulations! You reached Trainer Level {st.session_state.trainer_level}! 🎉")
 
-            save_user_state() # Save new XP/level to DB
-            check_and_award_badges() # Check for new achievements
+            save_user_state()
+            check_and_award_badges()
 
             type_emoji = FOOD_TYPES[food_type]['emoji']
             dex_message = "New Food-Dex entry! +50 bonus XP!" if is_new_dex_entry else ""
             st.success(f"Gotcha! {food_name.title()} ({type_emoji}) was caught! +{xp_gained} XP. {dex_message}")
-            st.rerun() # To refresh dashboard and badge list
+            st.rerun()
 
     st.divider()
 
@@ -325,11 +323,11 @@ else:
                 activity_minutes = st.number_input("Log Activity (in minutes)", 1, 60, 10)
                 if st.form_submit_button("🏃‍♂️ Log Activity"):
                     st.session_state.egg_progress += activity_minutes
-                    save_user_state() # PERSISTENCE IS KEY!
+                    save_user_state()
                     st.success(f"Great job! You logged {activity_minutes} minutes.")
                     st.rerun()
 
-# --- RECIPES LIST --- (Placed at the end for cleanliness)
+# --- RECIPES LIST ---
 HEALTHY_RECIPES = [
     {"name": "Quinoa Bowl with Roasted Veggies & Chickpeas", "ingredients": ["1 cup quinoa", "1 head of broccoli, chopped", "1 red bell pepper, sliced", "1 can (15 oz) chickpeas, rinsed", "2 tbsp olive oil", "1 tsp paprika", "Salt and pepper", "Lemon-tahini dressing"], "instructions": "1. Preheat oven to 400°F (200°C). Toss broccoli, bell pepper, and chickpeas with olive oil, paprika, salt, and pepper. Roast for 20-25 minutes. \n2. Cook quinoa according to package directions. \n3. Assemble bowls with a base of quinoa, topped with roasted veggies and chickpeas. Drizzle with lemon-tahini dressing."},
     {"name": "Grilled Salmon with Asparagus and Lemon", "ingredients": ["2 salmon fillets (6 oz each)", "1 bunch asparagus, trimmed", "1 tbsp olive oil", "1 lemon, sliced", "2 cloves garlic, minced", "Salt and pepper"], "instructions": "1. Preheat grill or grill pan to medium-high. \n2. Toss asparagus with olive oil, minced garlic, salt, and pepper. \n3. Season salmon fillets with salt and pepper. \n4. Grill salmon for 4-6 minutes per side, until cooked through. Grill asparagus for 5-7 minutes, until tender-crisp. \n5. Serve salmon and asparagus with fresh lemon slices."},
