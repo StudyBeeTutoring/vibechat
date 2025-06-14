@@ -2,7 +2,8 @@ import streamlit as st
 from datetime import datetime
 from sqlalchemy import text
 import time
-from streamlit_autorefresh import st_autorefresh # <- ADD THIS IMPORT
+from streamlit_autorefresh import st_autorefresh
+import pandas as pd # <- ADD THIS IMPORT
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -52,28 +53,22 @@ def chat_interface():
     """Displays the main chat interface and handles sending/receiving messages."""
 
     # --- AUTO-REFRESH ---
-    # This is the magic part! It will rerun the script every 2 seconds.
-    # The key provides a unique identity for this component.
-    # A smaller interval (e.g., 1000ms) means faster updates but more server load.
-    st_autorefresh(interval=2000, limit=None, key="chat_autorefresh") # <- ADD THIS LINE
+    st_autorefresh(interval=2000, limit=None, key="chat_autorefresh")
 
     st.title("💬 Streamlit Global Chat")
     st.caption(f"Logged in as: **{st.session_state.username}**")
 
     # --- MESSAGE DISPLAY ---
-    # This block now runs every 2 seconds automatically.
     messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
 
-    # Use a container for messages to potentially optimize rendering
     chat_container = st.container()
     with chat_container:
         for _, row in messages_df.iterrows():
-            # Use a unique key for each message to help Streamlit with rendering
             with st.chat_message(name=row["username"], avatar="👤"):
                 st.markdown(f"**{row['username']}**")
                 st.write(row["message"])
                 # Formatting the timestamp for better readability
-                ts = pd.to_datetime(row["timestamp"])
+                ts = pd.to_datetime(row["timestamp"]) # This line now works!
                 st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
 
     # --- MESSAGE INPUT ---
@@ -88,8 +83,7 @@ def chat_interface():
                 )
             )
             s.commit()
-        # No need to call st.rerun() here, as the autorefresh will handle it.
-        # The new message will appear on the next 2-second interval.
+        # The autorefresh will handle updating the view.
 
 # --- APP LOGIC ---
 init_db()
