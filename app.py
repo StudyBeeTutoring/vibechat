@@ -178,10 +178,12 @@ def chat_interface():
     st.write("---") # Visual separator
     cols = st.columns(len(messages_df))
     if not messages_df.empty:
-        # Display reaction buttons under the chat history
-        # (This is a simplified layout; for a real app, this would be per-message)
         st.subheader("React to the Latest Message")
-        latest_message_id = messages_f"React to Message #{latest_message_id}"
+        
+        # 1. Correctly get the ID of the last message
+        latest_message_id = messages_df["id"].iloc[-1]
+        
+        # 2. Use the ID to create unique keys for the buttons
         react_cols = st.columns(3)
         if react_cols[0].button("❤️", key=f"react_love_{latest_message_id}"):
             add_reaction(latest_message_id, "❤️")
