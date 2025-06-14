@@ -79,10 +79,30 @@ BUDDIES = {
     "Chicky 🍗": "A reliable chicken drumstick, great for protein goals!"
 }
 BADGES = {
-    "Boulder Badge": {"emoji": "🪨", "desc": "Log 5 unique 'Grains' food.", "check": lambda: conn.query("SELECT COUNT(DISTINCT name) FROM food_log WHERE type = 'Grains';")['count(distinct name)'][0] >= 5},
-    "Cascade Badge": {"emoji": "💧", "desc": "Log 'Hydration' for 7 days.", "check": lambda: conn.query("SELECT COUNT(DISTINCT date(timestamp)) FROM food_log WHERE type = 'Hydration';")['count(distinct date(timestamp))'][0] >= 7},
-    "Rainbow Badge": {"emoji": "🌈", "desc": "Log a food from every type.", "check": lambda: conn.query("SELECT COUNT(DISTINCT type) FROM food_log;")['count(distinct type)'][0] >= len(FOOD_TYPES)},
-    "Pioneer Badge": {"emoji": "🧭", "desc": "Log your first 10 unique foods.", "check": lambda: conn.query("SELECT COUNT(*) FROM food_dex;")['count(*)'][0] >= 10},
+    "Boulder Badge": {
+        "emoji": "🪨", 
+        "desc": "Log 5 unique 'Grains' food.", 
+        # Use 'AS total' and access the 'total' column
+        "check": lambda: conn.query("SELECT COUNT(DISTINCT name) AS total FROM food_log WHERE type = 'Grains';")['total'][0] >= 5
+    },
+    "Cascade Badge": {
+        "emoji": "💧", 
+        "desc": "Log 'Hydration' for 7 days.", 
+        # Use 'AS total' and access the 'total' column
+        "check": lambda: conn.query("SELECT COUNT(DISTINCT date(timestamp)) AS total FROM food_log WHERE type = 'Hydration';")['total'][0] >= 7
+    },
+    "Rainbow Badge": {
+        "emoji": "🌈", 
+        "desc": "Log a food from every type.", 
+        # Use 'AS total' and access the 'total' column
+        "check": lambda: conn.query("SELECT COUNT(DISTINCT type) AS total FROM food_log;")['total'][0] >= len(FOOD_TYPES)
+    },
+    "Pioneer Badge": {
+        "emoji": "🧭", 
+        "desc": "Log your first 10 unique foods.", 
+        # Use 'AS total' and access the 'total' column
+        "check": lambda: conn.query("SELECT COUNT(*) AS total FROM food_dex;")['total'][0] >= 10
+    },
 }
 # (Recipes are at the end of the file)
 
