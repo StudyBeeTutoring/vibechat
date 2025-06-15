@@ -19,62 +19,92 @@ def download_nltk_data():
         nltk.download('punkt')
 
 # --- CONFIGURATION (USING SECRETS) ---
-APP_NAME = "Vibe"
+APP_NAME = "Crème"
 SUPER_ADMIN_USERNAME = st.secrets["SUPER_ADMIN_USERNAME"]
 SUPER_ADMIN_DEFAULT_PASS = st.secrets["SUPER_ADMIN_DEFAULT_PASS"]
 APP_SALT = st.secrets["APP_SALT"]
 
 AVATARS = {
-    "Vibe": "🎧", "Crystal": "💎", "Wave": "🌊", "Flame": "🔥",
-    "Star": "🌟", "Aura": "✨", "Pulse": "⚡️", "Zen": "🧘"
+    "Latte": "☕", "Macaron": "🍬", "Moon": "🌙", "Cloud": "☁️",
+    "Feather": "🪶", "Dove": "🕊️", "Lotus": "🌸", "Harp": "🎼"
 }
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title=APP_NAME, page_icon="✨", layout="wide")
+st.set_page_config(page_title=APP_NAME, page_icon="🍦", layout="wide")
 
-# --- CUSTOM STYLING (WITH THEMED SIDEBAR) ---
+# --- CUSTOM STYLING (THE "CRÈME" THEME) ---
 st.markdown("""
     <style>
-        /* The main app background */
+        /* Main App & Text */
         .stApp {
-            background-color: #1E2A3A; /* Deep Slate Blue */
+            background-color: #FFF8E7; /* The main creamy background */
+        }
+        body, .stApp, p, h1, h2, h3, h4, h5, h6, .st-emotion-cache-16idsys p {
+            color: #4A4A4A; /* Dark, readable slate gray */
         }
         
-        /* Sidebar background to match */
+        /* Sidebar */
         [data-testid="stSidebar"] {
-            background-color: #26354A; /* A slightly lighter slate for depth */
+            background-color: #FFFFFF; /* A clean, crisp white for the sidebar */
+            border-right: 1px solid #E0E0E0;
         }
 
-        /* General text color for readability */
-        body, .stApp, [data-testid="stSidebar"] {
-            color: #E0E0E0; /* Soft Off-White */
-        }
-
-        /* Custom title with gradient text */
-        .vibe-title {
-            font-size: 3rem;
+        /* Custom Title with Gradient Text */
+        .creme-title {
+            font-size: 3.5rem;
             font-weight: bold;
-            background: -webkit-linear-gradient(45deg, #00C9FF, #92FE9D); /* A fresh blue/green gradient */
+            padding-bottom: 0.5rem;
+            background: -webkit-linear-gradient(45deg, #a0c4ff, #ffafcc);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
-        /* Custom caption styling */
-        .vibe-caption {
-            font-size: 1.1rem;
-            color: #A0A0B0; /* Light Slate Gray for captions */
+        /* Buttons */
+        .stButton button {
+            background-color: #BDE0FE; /* Soft blue */
+            color: #283618; /* Dark olive green for contrast */
+            border: none;
+            border-radius: 8px;
+            transition: all 0.2s ease-in-out;
+        }
+        .stButton button:hover {
+            background-color: #FFC8DD; /* Soft pink on hover */
+            transform: scale(1.02);
+        }
+        .stButton button:active {
+            background-color: #FFAFCC;
         }
         
-        /* Styling for Streamlit's expander to match the theme */
+        /* Text Inputs & Select Boxes */
+        .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
+            background-color: #FFFFFF;
+            border: 1px solid #D0D0D0;
+            border-radius: 8px;
+            color: #4A4A4A;
+        }
+        
+        /* Chat Area */
+        .stChatInput {
+            background-color: #FFF8E7;
+        }
+        [data-testid="stChatMessage"] {
+            background-color: #FFFFFF;
+            border-radius: 10px;
+            padding: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        
+        /* Expander styling */
         .st-emotion-cache-1h9usn1 {
-            border-color: #4A5568;
+            border-color: #E0E0E0;
         }
     </style>
 """, unsafe_allow_html=True)
 
 
 # --- DATABASE SETUP ---
-conn = st.connection("chat_db", type="sql", url="sqlite:///vibe_app.db", ttl=0)
+# Using a new DB file for the final version.
+conn = st.connection("chat_db", type="sql", url="sqlite:///creme_app.db", ttl=0)
 
 def init_db():
     with conn.session as s:
@@ -116,8 +146,8 @@ def get_sentiment_emoji(score):
 
 # --- UI SCREENS ---
 def show_welcome_screen():
-    st.markdown('<p class="vibe-title">Welcome to Vibe</p>', unsafe_allow_html=True)
-    st.markdown('<p class="vibe-caption">Real-time chat with a touch of intuition.</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="creme-title">Welcome to {APP_NAME}</p>', unsafe_allow_html=True)
+    st.caption("A soft place to land your thoughts.")
     st.write("")
     col1, col2, col3 = st.columns(3)
     if col1.button("🔒 Login", use_container_width=True): st.session_state.screen = "login"; st.rerun()
@@ -146,7 +176,7 @@ def show_register_screen():
     with st.form("register_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        avatar_label = st.selectbox("Choose Your Vibe", options=list(AVATARS.keys()))
+        avatar_label = st.selectbox("Choose Your Avatar", options=list(AVATARS.keys()))
         submitted = st.form_submit_button("Register")
         if submitted:
             if not username or not password: st.warning("Please fill out all fields.")
@@ -164,7 +194,7 @@ def show_guest_setup_screen():
     st.header("Enter as a Guest")
     with st.form("guest_form"):
         username = st.text_input("Guest Username")
-        avatar_label = st.selectbox("Choose Your Vibe", options=list(AVATARS.keys()))
+        avatar_label = st.selectbox("Choose Your Avatar", options=list(AVATARS.keys()))
         submitted = st.form_submit_button("Enter Chat")
         if submitted:
             if not username: st.warning("Please enter a username.")
@@ -253,8 +283,8 @@ def show_chat_screen():
             with st.expander("Change Your Password"):
                 show_change_password_form(st.session_state.username)
 
-    st.markdown('<p class="vibe-title">Vibe</p>', unsafe_allow_html=True)
-    st.caption("Messages are ephemeral and vanish after 1 hour. What's your vibe?")
+    st.markdown(f'<p class="creme-title">{APP_NAME}</p>', unsafe_allow_html=True)
+    st.caption("Messages are ephemeral and vanish after 1 hour.")
 
     chat_container = st.container(height=500, border=False)
     with chat_container:
@@ -267,7 +297,7 @@ def show_chat_screen():
                 ts = pd.to_datetime(row["timestamp"])
                 st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
 
-    if prompt := st.chat_input("Share your vibe..."):
+    if prompt := st.chat_input("Share your thoughts..."):
         sentiment_score = analyze_sentiment(prompt)
         with conn.session as s:
             s.execute(text("INSERT INTO messages (username, avatar, message, timestamp, sentiment) VALUES (:u, :a, :m, :ts, :senti);"),
