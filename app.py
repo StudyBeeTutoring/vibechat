@@ -6,12 +6,12 @@ import time
 from streamlit_autorefresh import st_autorefresh
 import json
 import hashlib
-import streamlit.components.v1 as components
 
 # --- CONFIGURATION ---
 SUPER_ADMIN_USERNAME = "admin"
 SUPER_ADMIN_DEFAULT_PASS = "admin123"
-APP_SALT = "a_super_secret_salt_for_your_app_v4"
+# IMPORTANT: For a real app, you should change this salt to a unique, random string.
+APP_SALT = "a_super_secret_salt_for_a_privacy_focused_app"
 
 AVATARS = {
     "Cat": "🐱", "Dog": "🐶", "Fox": "🦊", "Bear": "🐻",
@@ -19,31 +19,34 @@ AVATARS = {
 }
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Streamlit Advanced Chat", page_icon="🌐", layout="wide")
+st.set_page_config(page_title="Streamlit Chat App", page_icon="💬", layout="wide")
 
 # --- DATABASE SETUP ---
-conn = st.connection("chat_db", type="sql", url="sqlite:///advanced_chat_v4.db", ttl=0)
+# Using a new DB file to reflect the final version without location data.
+conn = st.connection("chat_db", type="sql", url="sqlite:///chat_app_final.db", ttl=0)
 
 def init_db():
+    """Initializes all necessary database tables."""
     with conn.session as s:
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY, hashed_password TEXT NOT NULL,
-                avatar TEXT, role TEXT DEFAULT 'user'
+                username TEXT PRIMARY KEY,
+                hashed_password TEXT NOT NULL,
+                avatar TEXT,
+                role TEXT DEFAULT 'user'
             );
         """))
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY, username TEXT, avatar TEXT,
-                message TEXT, timestamp DATETIME, reactions TEXT DEFAULT '{}'
+                id INTEGER PRIMARY KEY,
+                username TEXT,
+                avatar TEXT,
+                message TEXT,
+                timestamp DATETIME,
+                reactions TEXT DEFAULT '{}'
             );
         """))
-        s.execute(text("""
-            CREATE TABLE IF NOT EXISTS user_locations (
-                id INTEGER PRIMARY KEY, username TEXT, lat REAL, lon REAL,
-                timestamp DATETIME
-            );
-        """))
+        # Check if admin user exists, if not, create it.
         admin_user = s.execute(text("SELECT * FROM users WHERE username = :user;"), params=dict(user=SUPER_ADMIN_USERNAME)).fetchone()
         if not admin_user:
             hashed_pass = hash_password(SUPER_ADMIN_DEFAULT_PASS)
@@ -55,44 +58,28 @@ def init_db():
 
 # --- SECURITY & DATA MANAGEMENT ---
 def hash_password(password):
+    """Hashes a password with the app's salt."""
     salted_password = password + APP_SALT
     return hashlib.sha256(salted_password.encode()).hexdigest()
 
 def verify_password(stored_hash, provided_password):
+    """Verifies a provided password against a stored hash."""
     return stored_hash == hash_password(provided_password)
 
 def clear_old_messages():
+    """Deletes messages from the database that are older than 1 hour."""
     cutoff_time = datetime.now() - timedelta(hours=1)
     with conn.session as s:
-        s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time))
+        s.execute(
+            text("DELETE FROM messages WHERE timestamp < :cutoff;"),
+            params=dict(cutoff=cutoff_time)
+        )
         s.commit()
 
-# --- GEOLOCATION COMPONENT ---
-def get_location_component():
-    return components.html(
-        """<script>
-        const options = { timeout: 5000 };
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                window.parent.postMessage({
-                    type: "streamlit:setComponentValue",
-                    value: { lat: position.coords.latitude, lon: position.coords.longitude }
-                }, "*");
-            },
-            (error) => {
-                window.parent.postMessage({
-                    type: "streamlit:setComponentValue",
-                    value: { error: `Geolocation error: ${error.message}` }
-                }, "*");
-            },
-            options
-        );
-        </script>""", height=0)
-
-# --- UI SCREENS ---
+# --- UI SCREENS (Welcome, Login, Register, Guest, Change Password are unchanged) ---
 def show_welcome_screen():
-    st.title("Welcome to the Advanced Chat App 🌐")
-    st.write("Log in, register, or join as a guest.")
+    st.title("Welcome to the Streamlit Chat App 💬")
+    st.write("Log in to an existing account, register a new one, or join temporarily as a guest.")
     col1, col2, col3 = st.columns(3)
     if col1.button("🔒 Login", use_container_width=True): st.session_state.screen = "login"; st.rerun()
     if col2.button("✍️ Register", use_container_width=True): st.session_state.screen = "register"; st.rerun()
@@ -166,7 +153,7 @@ def show_chat_screen():
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
 
     if st.session_state.get("admin_using_default_pass", False):
-        st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it in the sidebar.", icon="⚠️")
+        st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it immediately in the sidebar.", icon="⚠️")
     
     with st.sidebar:
         st.title(f"{st.session_state.avatar} {st.session_state.username}")
@@ -174,11 +161,6 @@ def show_chat_screen():
         if st.button("Log Out"):
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
-        st.divider()
-        st.subheader("📍 Share Location")
-        st.warning("This shares your location with all users. Use with caution.")
-        if st.button("Update My Location", use_container_width=True):
-            st.session_state.get_location = True
         
         if st.session_state.role == 'admin':
             st.divider()
@@ -193,55 +175,25 @@ def show_chat_screen():
             st.divider()
             show_change_password_form()
 
-    # --- NEW, ROBUST GEOLOCATION LOGIC ---
-    if st.session_state.get('get_location', False):
-        # First, display the component to trigger the JS request
-        location_data = get_location_component()
-        
-        # Display a waiting message while the component gets data
-        st.info("Waiting for location data from your browser... Please grant permission if prompted.", icon="⏳")
+    # --- MAIN CHAT UI (Simplified without tabs) ---
+    st.title("Global Chat Room")
+    st.caption("Messages are automatically deleted after 1 hour.")
 
-        # Now, check if the component has returned a value on this rerun
-        if location_data:
-            # It has a value, so we can process it and reset the state
-            try:
-                # The component returns a JSON string, so we parse it
-                data = json.loads(location_data)
-                if "error" in data:
-                    st.error(f"Could not get location: {data['error']}")
-                else:
-                    with conn.session as s:
-                        s.execute(text("INSERT INTO user_locations (username, lat, lon, timestamp) VALUES (:u, :lat, :lon, :ts)"),
-                                  params=dict(u=st.session_state.username, lat=data['lat'], lon=data['lon'], ts=datetime.now()))
-                        s.commit()
-                    st.toast("Location updated successfully!")
-            except (json.JSONDecodeError, TypeError) as e:
-                st.error(f"Error processing location data: {e}")
-            finally:
-                # IMPORTANT: Reset the flag to stop this block from running again
-                st.session_state.get_location = False
-                st.rerun() # Force a rerun to clear the "Waiting..." message and update the map
-    
-    tab1, tab2 = st.tabs(["💬 Chat Room", "🗺️ Activity Map"])
-    with tab1:
-        chat_container = st.container(height=500)
-        with chat_container:
-            messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
-            for _, row in messages_df.iterrows():
-                with st.chat_message(name=row["username"], avatar=row["avatar"]):
-                    st.markdown(f"**{row['username']}**"); st.write(row["message"])
-                    ts = pd.to_datetime(row["timestamp"])
-                    st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
-        if prompt := st.chat_input("Say something..."):
-            with conn.session as s:
-                s.execute(text("INSERT INTO messages (username, avatar, message, timestamp) VALUES (:u, :a, :m, :ts);"), params=dict(u=st.session_state.username, a=st.session_state.avatar, m=prompt, ts=datetime.now())); s.commit()
-            st.rerun()
-            
-    with tab2:
-        st.header("User Location Map")
-        locations_df = conn.query("""SELECT username, lat, lon FROM user_locations WHERE id IN (SELECT MAX(id) FROM user_locations GROUP BY username);""", ttl=10)
-        if not locations_df.empty: st.map(locations_df)
-        else: st.info("No user locations have been shared yet.")
+    chat_container = st.container(height=500)
+    with chat_container:
+        messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
+        for _, row in messages_df.iterrows():
+            with st.chat_message(name=row["username"], avatar=row["avatar"]):
+                st.markdown(f"**{row['username']}**"); st.write(row["message"])
+                ts = pd.to_datetime(row["timestamp"])
+                st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
+
+    if prompt := st.chat_input("Say something..."):
+        with conn.session as s:
+            s.execute(text("INSERT INTO messages (username, avatar, message, timestamp) VALUES (:u, :a, :m, :ts);"), 
+                      params=dict(u=st.session_state.username, a=st.session_state.avatar, m=prompt, ts=datetime.now()))
+            s.commit()
+        st.rerun()
 
 # --- MAIN APP ROUTER ---
 init_db()
