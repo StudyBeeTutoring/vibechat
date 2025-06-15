@@ -65,8 +65,7 @@ def verify_password(stored_hash, provided_password):
     return stored_hash == hash_password(provided_password)
 def clear_old_messages():
     cutoff_time = datetime.now() - timedelta(hours=1)
-    with conn.session as s:
-        s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time)); s.commit()
+    with conn.session as s: s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time)); s.commit()
 def analyze_sentiment(text_message):
     return TextBlob(text_message).sentiment.polarity
 def get_sentiment_emoji(score):
@@ -92,14 +91,12 @@ def show_login_screen():
         if submitted:
             with conn.session as s: user = s.execute(text("SELECT * FROM users WHERE username = :u;"), params=dict(u=username)).fetchone()
             if user and verify_password(user.hashed_password, password):
-                if user.status == 'banned':
-                    st.error("This account has been banned.")
+                if user.status == 'banned': st.error("This account has been banned.")
                 else:
                     st.session_state.logged_in = True; st.session_state.username = user.username; st.session_state.avatar = user.avatar; st.session_state.role = user.role; st.session_state.screen = "chat"
                     if user.role == 'admin' and verify_password(user.hashed_password, SUPER_ADMIN_DEFAULT_PASS): st.session_state.admin_using_default_pass = True
                     st.success("Login successful!"); time.sleep(1); st.rerun()
-            else:
-                st.error("Invalid username or password.")
+            else: st.error("Invalid username or password.")
     if st.button("← Back to Welcome"): st.session_state.screen = "welcome"; st.rerun()
 
 def show_register_screen():
@@ -136,7 +133,7 @@ def show_guest_setup_screen():
 def show_change_password_form(username_to_change, is_admin_reset=False):
     form_key = f"change_pass_{username_to_change}"
     if is_admin_reset:
-        st.subheader(f"Reset Password for '{username_to_change}'")
+        st.write(f"Set a new password for '{username_to_change}':")
     else:
         st.subheader("🔑 Change Your Password")
     with st.form(form_key):
@@ -159,49 +156,11 @@ def show_change_password_form(username_to_change, is_admin_reset=False):
                 if not is_admin_reset: st.session_state.admin_using_default_pass = False
                 time.sleep(1); st.rerun()
 
-def show_admin_dashboard():
-    st.subheader("🛡️ Admin Dashboard")
-    st.write("Moderate users and manage the chat room.")
-    
-    # User Management Section
-    st.markdown("---")
-    st.subheader("User Management")
-    # Using ttl=10 to ensure the user list is reasonably fresh.
-    all_users_df = conn.query("SELECT username, avatar, role, status FROM users ORDER BY username;", ttl=10)
-    
-    for index, user in all_users_df.iterrows():
-        if user.username == SUPER_ADMIN_USERNAME: continue
-        st.markdown(f"**{user.avatar} {user.username}** (`{user.role}`) - Status: **{user.status.capitalize()}**")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if user.status == 'active':
-                if st.button("🚫 Ban", key=f"ban_{user.username}", use_container_width=True, type="primary"):
-                    with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                    st.rerun()
-            else:
-                if st.button("✅ Unban", key=f"unban_{user.username}", use_container_width=True):
-                    with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                    st.rerun()
-        with col2:
-            with st.expander(f"Reset Password"):
-                show_change_password_form(user.username, is_admin_reset=True)
-
-    # Chat Controls Section
-    st.markdown("---")
-    st.subheader("Chat Controls")
-    if st.button("🚨 Clear All Messages", use_container_width=True):
-        with st.popover("Confirm Action"):
-            st.warning("This will permanently delete all messages. Are you sure?")
-            if st.button("Yes, Delete Everything", type="primary"):
-                with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
-                st.toast("Chat history cleared!"); st.rerun()
-
 def show_chat_screen():
     clear_old_messages()
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
     if st.session_state.get("admin_using_default_pass", False):
-        st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it immediately.", icon="⚠️")
+        st.warning("🚨 **Security Alert:** You are using the default admin password. Please change it immediately.", icon="⚠️")
     
     with st.sidebar:
         st.title(f"{st.session_state.avatar} {st.session_state.username}")
@@ -210,11 +169,41 @@ def show_chat_screen():
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
         
+        # --- MODIFIED: Admin controls are now separate expanders ---
         if st.session_state.role == 'admin':
             st.divider()
-            with st.expander("Admin Dashboard", expanded=True):
-                show_admin_dashboard()
-            st.divider()
+            st.subheader("🛡️ Admin Panel")
+            
+            with st.expander("User Management"):
+                all_users_df = conn.query("SELECT username, avatar, role, status FROM users ORDER BY username;", ttl=10)
+                for index, user in all_users_df.iterrows():
+                    if user.username == SUPER_ADMIN_USERNAME: continue
+                    
+                    st.markdown(f"**{user.avatar} {user.username}** (`{user.role}`)")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if user.status == 'active':
+                            if st.button("🚫 Ban", key=f"ban_{user.username}", use_container_width=True, type="primary"):
+                                with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                                st.rerun()
+                        else:
+                            if st.button("✅ Unban", key=f"unban_{user.username}", use_container_width=True):
+                                with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                                st.rerun()
+                    with col2:
+                        # Password reset is now a popover for a cleaner look
+                        with st.popover("Reset Password", use_container_width=True):
+                            show_change_password_form(user.username, is_admin_reset=True)
+                    st.markdown("---")
+            
+            with st.expander("Chat Controls"):
+                if st.button("🚨 Clear All Messages", use_container_width=True):
+                    with st.popover("Confirm Action"):
+                        st.warning("This will permanently delete all messages.")
+                        if st.button("Yes, Delete Everything", type="primary"):
+                            with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
+                            st.toast("Chat history cleared!"); st.rerun()
+
             with st.expander("Change Your Password"):
                 show_change_password_form(st.session_state.username)
 
