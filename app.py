@@ -9,24 +9,17 @@ import hashlib
 from textblob import TextBlob
 import nltk
 
-# --- ONE-TIME SETUP for TextBlob (Now more robust) ---
-# @st.cache_resource ensures this function runs only once per app session.
-@st.cache_resource
+# --- ONE-TIME SETUP for TextBlob ---
+# REMOVED @st.cache_resource decorator to fix the CacheReplayClosureError.
+# This function will now run on each script run, but the internal check is fast.
 def download_nltk_data():
     """Downloads the necessary NLTK models for TextBlob sentiment analysis."""
     try:
-        # A more reliable check for the necessary data.
-        TextBlob("test")
-        st.toast("Sentiment analysis models are ready.", icon="✅")
-    except nltk.downloader.DownloadError as e:
-        # This error can occur if the default download location is not writable.
-        st.toast("Downloading necessary models for sentiment analysis...", icon="⏳")
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        st.toast("Performing first-time setup for sentiment analysis...", icon="⏳")
         nltk.download('punkt')
-        st.toast("Setup complete!", icon="🎉")
-    except Exception as e:
-        # A general catch-all for other potential issues.
-        st.error(f"An error occurred during NLTK setup: {e}")
-
+        st.toast("Setup complete! The app is ready.", icon="🎉")
 
 # --- CONFIGURATION ---
 SUPER_ADMIN_USERNAME = "admin"
