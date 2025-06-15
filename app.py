@@ -6,12 +6,28 @@ import time
 from streamlit_autorefresh import st_autorefresh
 import json
 import hashlib
+from textblob import TextBlob
+import nltk
+
+# --- ONE-TIME SETUP for TextBlob ---
+# This function ensures the necessary NLTK data is downloaded for sentiment analysis.
+# It uses a file-based flag to run only once.
+def download_nltk_data():
+    try:
+        # Check if the data is already downloaded by looking for a specific directory
+        nltk.data.find('corpora/wordnet.zip')
+    except nltk.downloader.DownloadError:
+        # If not found, download it. This will run on Streamlit Cloud's first boot.
+        st.toast("Performing first-time setup for sentiment analysis...")
+        nltk.download('punkt')
+        nltk.download('wordnet')
+        nltk.download('averaged_perceptron_tagger')
+        nltk.download('brown')
 
 # --- CONFIGURATION ---
 SUPER_ADMIN_USERNAME = "admin"
 SUPER_ADMIN_DEFAULT_PASS = "admin123"
-# IMPORTANT: For a real app, you should change this salt to a unique, random string.
-APP_SALT = "a_super_secret_salt_for_a_privacy_focused_app"
+APP_SALT = "a_super_secret_salt_for_a_sentiment_app_v5"
 
 AVATARS = {
     "Cat": "🐱", "Dog": "🐶", "Fox": "🦊", "Bear": "🐻",
@@ -19,34 +35,27 @@ AVATARS = {
 }
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Streamlit Chat App", page_icon="💬", layout="wide")
+st.set_page_config(page_title="Sentimental Chat", page_icon="😊", layout="wide")
 
 # --- DATABASE SETUP ---
-# Using a new DB file to reflect the final version without location data.
-conn = st.connection("chat_db", type="sql", url="sqlite:///chat_app_final.db", ttl=0)
+conn = st.connection("chat_db", type="sql", url="sqlite:///sentimental_chat.db", ttl=0)
 
 def init_db():
-    """Initializes all necessary database tables."""
     with conn.session as s:
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY,
-                hashed_password TEXT NOT NULL,
-                avatar TEXT,
-                role TEXT DEFAULT 'user'
+                username TEXT PRIMARY KEY, hashed_password TEXT NOT NULL,
+                avatar TEXT, role TEXT DEFAULT 'user'
             );
         """))
+        # Add a 'sentiment' column to the messages table
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY,
-                username TEXT,
-                avatar TEXT,
-                message TEXT,
-                timestamp DATETIME,
-                reactions TEXT DEFAULT '{}'
+                id INTEGER PRIMARY KEY, username TEXT, avatar TEXT,
+                message TEXT, timestamp DATETIME,
+                sentiment REAL DEFAULT 0.0
             );
         """))
-        # Check if admin user exists, if not, create it.
         admin_user = s.execute(text("SELECT * FROM users WHERE username = :user;"), params=dict(user=SUPER_ADMIN_USERNAME)).fetchone()
         if not admin_user:
             hashed_pass = hash_password(SUPER_ADMIN_DEFAULT_PASS)
@@ -56,30 +65,35 @@ def init_db():
             """), params=dict(user=SUPER_ADMIN_USERNAME, hp=hashed_pass))
         s.commit()
 
-# --- SECURITY & DATA MANAGEMENT ---
+# --- NLP & HELPERS ---
+def analyze_sentiment(text_message):
+    """Analyzes text and returns a polarity score."""
+    return TextBlob(text_message).sentiment.polarity
+
+def get_sentiment_emoji(score):
+    """Returns an emoji based on a sentiment score."""
+    if score > 0.1:
+        return "😊"  # Positive
+    elif score < -0.1:
+        return "😠"  # Negative
+    else:
+        return "😐"  # Neutral
+
+# (Other helper functions like hash_password, verify_password, etc. are unchanged)
 def hash_password(password):
-    """Hashes a password with the app's salt."""
-    salted_password = password + APP_SALT
-    return hashlib.sha256(salted_password.encode()).hexdigest()
-
+    return hashlib.sha256((password + APP_SALT).encode()).hexdigest()
 def verify_password(stored_hash, provided_password):
-    """Verifies a provided password against a stored hash."""
     return stored_hash == hash_password(provided_password)
-
 def clear_old_messages():
-    """Deletes messages from the database that are older than 1 hour."""
     cutoff_time = datetime.now() - timedelta(hours=1)
     with conn.session as s:
-        s.execute(
-            text("DELETE FROM messages WHERE timestamp < :cutoff;"),
-            params=dict(cutoff=cutoff_time)
-        )
+        s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time))
         s.commit()
 
 # --- UI SCREENS (Welcome, Login, Register, Guest, Change Password are unchanged) ---
 def show_welcome_screen():
-    st.title("Welcome to the Streamlit Chat App 💬")
-    st.write("Log in to an existing account, register a new one, or join temporarily as a guest.")
+    st.title("Welcome to Sentimental Chat 😊")
+    st.write("A chat app that understands the mood of the conversation.")
     col1, col2, col3 = st.columns(3)
     if col1.button("🔒 Login", use_container_width=True): st.session_state.screen = "login"; st.rerun()
     if col2.button("✍️ Register", use_container_width=True): st.session_state.screen = "register"; st.rerun()
@@ -148,12 +162,29 @@ def show_change_password_form():
                 with conn.session as s: s.execute(text("UPDATE users SET hashed_password = :hp WHERE username = :u"), params=dict(hp=new_hashed_password, u=st.session_state.username)); s.commit()
                 st.success("Password changed successfully!"); st.session_state.admin_using_default_pass = False; time.sleep(1); st.rerun()
 
+def show_chat_vibe():
+    """Displays the overall chat sentiment meter."""
+    st.subheader("💬 Chat Vibe")
+    # Get sentiment scores of the last 20 messages
+    recent_sentiments = conn.query("SELECT sentiment FROM messages ORDER BY timestamp DESC LIMIT 20;")['sentiment'].tolist()
+    
+    if recent_sentiments:
+        avg_sentiment = sum(recent_sentiments) / len(recent_sentiments)
+        vibe_emoji = get_sentiment_emoji(avg_sentiment)
+        
+        st.metric(label=f"Overall Mood: {vibe_emoji}", value=f"{avg_sentiment:.2f}")
+        # Progress bar ranges from -1 (very negative) to 1 (very positive). We shift it to 0-2 for the bar.
+        st.progress((avg_sentiment + 1) / 2)
+        st.caption("Based on the last 20 messages.")
+    else:
+        st.info("Not enough messages to determine the chat vibe.")
+
 def show_chat_screen():
     clear_old_messages()
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
 
     if st.session_state.get("admin_using_default_pass", False):
-        st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it immediately in the sidebar.", icon="⚠️")
+        st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it immediately.", icon="⚠️")
     
     with st.sidebar:
         st.title(f"{st.session_state.avatar} {st.session_state.username}")
@@ -161,6 +192,10 @@ def show_chat_screen():
         if st.button("Log Out"):
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
+        st.divider()
+        
+        # New Chat Vibe feature
+        show_chat_vibe()
         
         if st.session_state.role == 'admin':
             st.divider()
@@ -171,11 +206,9 @@ def show_chat_screen():
                 st.subheader("Registered Users")
                 all_users_df = conn.query("SELECT username, avatar, role FROM users ORDER BY username;")
                 st.dataframe(all_users_df, use_container_width=True, hide_index=True)
-                st.caption("Note: Hashed passwords are not displayed for security.")
             st.divider()
             show_change_password_form()
 
-    # --- MAIN CHAT UI (Simplified without tabs) ---
     st.title("Global Chat Room")
     st.caption("Messages are automatically deleted after 1 hour.")
 
@@ -184,18 +217,29 @@ def show_chat_screen():
         messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
         for _, row in messages_df.iterrows():
             with st.chat_message(name=row["username"], avatar=row["avatar"]):
-                st.markdown(f"**{row['username']}**"); st.write(row["message"])
+                sentiment_emoji = get_sentiment_emoji(row['sentiment'])
+                st.markdown(f"**{row['username']}** {sentiment_emoji}")
+                st.write(row["message"])
                 ts = pd.to_datetime(row["timestamp"])
                 st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
 
     if prompt := st.chat_input("Say something..."):
+        # Analyze sentiment before saving
+        sentiment_score = analyze_sentiment(prompt)
+        
         with conn.session as s:
-            s.execute(text("INSERT INTO messages (username, avatar, message, timestamp) VALUES (:u, :a, :m, :ts);"), 
-                      params=dict(u=st.session_state.username, a=st.session_state.avatar, m=prompt, ts=datetime.now()))
+            s.execute(text("""
+                INSERT INTO messages (username, avatar, message, timestamp, sentiment) 
+                VALUES (:u, :a, :m, :ts, :senti);
+            """), params=dict(
+                u=st.session_state.username, a=st.session_state.avatar, 
+                m=prompt, ts=datetime.now(), senti=sentiment_score
+            ))
             s.commit()
         st.rerun()
 
 # --- MAIN APP ROUTER ---
+download_nltk_data() # Ensure NLTK data is available
 init_db()
 if 'screen' not in st.session_state: st.session_state.screen = "welcome"
 if st.session_state.screen == "welcome": show_welcome_screen()
