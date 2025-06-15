@@ -9,20 +9,24 @@ import hashlib
 from textblob import TextBlob
 import nltk
 
-# --- ONE-TIME SETUP for TextBlob ---
-# This function ensures the necessary NLTK data is downloaded for sentiment analysis.
-# It uses a file-based flag to run only once.
+# --- ONE-TIME SETUP for TextBlob (Now more robust) ---
+# @st.cache_resource ensures this function runs only once per app session.
+@st.cache_resource
 def download_nltk_data():
+    """Downloads the necessary NLTK models for TextBlob sentiment analysis."""
     try:
-        # Check if the data is already downloaded by looking for a specific directory
-        nltk.data.find('corpora/wordnet.zip')
-    except nltk.downloader.DownloadError:
-        # If not found, download it. This will run on Streamlit Cloud's first boot.
-        st.toast("Performing first-time setup for sentiment analysis...")
+        # A more reliable check for the necessary data.
+        TextBlob("test")
+        st.toast("Sentiment analysis models are ready.", icon="✅")
+    except nltk.downloader.DownloadError as e:
+        # This error can occur if the default download location is not writable.
+        st.toast("Downloading necessary models for sentiment analysis...", icon="⏳")
         nltk.download('punkt')
-        nltk.download('wordnet')
-        nltk.download('averaged_perceptron_tagger')
-        nltk.download('brown')
+        st.toast("Setup complete!", icon="🎉")
+    except Exception as e:
+        # A general catch-all for other potential issues.
+        st.error(f"An error occurred during NLTK setup: {e}")
+
 
 # --- CONFIGURATION ---
 SUPER_ADMIN_USERNAME = "admin"
@@ -48,7 +52,6 @@ def init_db():
                 avatar TEXT, role TEXT DEFAULT 'user'
             );
         """))
-        # Add a 'sentiment' column to the messages table
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY, username TEXT, avatar TEXT,
@@ -67,30 +70,26 @@ def init_db():
 
 # --- NLP & HELPERS ---
 def analyze_sentiment(text_message):
-    """Analyzes text and returns a polarity score."""
     return TextBlob(text_message).sentiment.polarity
 
 def get_sentiment_emoji(score):
-    """Returns an emoji based on a sentiment score."""
-    if score > 0.1:
-        return "😊"  # Positive
-    elif score < -0.1:
-        return "😠"  # Negative
-    else:
-        return "😐"  # Neutral
+    if score > 0.1: return "😊"
+    elif score < -0.1: return "😠"
+    else: return "😐"
 
-# (Other helper functions like hash_password, verify_password, etc. are unchanged)
 def hash_password(password):
     return hashlib.sha256((password + APP_SALT).encode()).hexdigest()
+
 def verify_password(stored_hash, provided_password):
     return stored_hash == hash_password(provided_password)
+
 def clear_old_messages():
     cutoff_time = datetime.now() - timedelta(hours=1)
     with conn.session as s:
         s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time))
         s.commit()
 
-# --- UI SCREENS (Welcome, Login, Register, Guest, Change Password are unchanged) ---
+# --- UI SCREENS ---
 def show_welcome_screen():
     st.title("Welcome to Sentimental Chat 😊")
     st.write("A chat app that understands the mood of the conversation.")
@@ -163,17 +162,12 @@ def show_change_password_form():
                 st.success("Password changed successfully!"); st.session_state.admin_using_default_pass = False; time.sleep(1); st.rerun()
 
 def show_chat_vibe():
-    """Displays the overall chat sentiment meter."""
     st.subheader("💬 Chat Vibe")
-    # Get sentiment scores of the last 20 messages
     recent_sentiments = conn.query("SELECT sentiment FROM messages ORDER BY timestamp DESC LIMIT 20;")['sentiment'].tolist()
-    
     if recent_sentiments:
         avg_sentiment = sum(recent_sentiments) / len(recent_sentiments)
         vibe_emoji = get_sentiment_emoji(avg_sentiment)
-        
         st.metric(label=f"Overall Mood: {vibe_emoji}", value=f"{avg_sentiment:.2f}")
-        # Progress bar ranges from -1 (very negative) to 1 (very positive). We shift it to 0-2 for the bar.
         st.progress((avg_sentiment + 1) / 2)
         st.caption("Based on the last 20 messages.")
     else:
@@ -182,7 +176,6 @@ def show_chat_vibe():
 def show_chat_screen():
     clear_old_messages()
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
-
     if st.session_state.get("admin_using_default_pass", False):
         st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it immediately.", icon="⚠️")
     
@@ -193,8 +186,6 @@ def show_chat_screen():
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
         st.divider()
-        
-        # New Chat Vibe feature
         show_chat_vibe()
         
         if st.session_state.role == 'admin':
@@ -224,9 +215,7 @@ def show_chat_screen():
                 st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
 
     if prompt := st.chat_input("Say something..."):
-        # Analyze sentiment before saving
         sentiment_score = analyze_sentiment(prompt)
-        
         with conn.session as s:
             s.execute(text("""
                 INSERT INTO messages (username, avatar, message, timestamp, sentiment) 
@@ -239,7 +228,7 @@ def show_chat_screen():
         st.rerun()
 
 # --- MAIN APP ROUTER ---
-download_nltk_data() # Ensure NLTK data is available
+download_nltk_data()
 init_db()
 if 'screen' not in st.session_state: st.session_state.screen = "welcome"
 if st.session_state.screen == "welcome": show_welcome_screen()
