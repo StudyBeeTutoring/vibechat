@@ -18,7 +18,7 @@ def download_nltk_data():
     except LookupError:
         nltk.download('punkt')
 
-# --- CONFIGURATION (NOW USING SECRETS) ---
+# --- CONFIGURATION (USING SECRETS) ---
 APP_NAME = "Vibe"
 SUPER_ADMIN_USERNAME = st.secrets["SUPER_ADMIN_USERNAME"]
 SUPER_ADMIN_DEFAULT_PASS = st.secrets["SUPER_ADMIN_DEFAULT_PASS"]
@@ -32,32 +32,43 @@ AVATARS = {
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title=APP_NAME, page_icon="✨", layout="wide")
 
-# --- CUSTOM STYLING (THE "CHIC" PART) ---
+# --- CUSTOM STYLING (NEW "COOL SLATE" THEME) ---
 st.markdown("""
     <style>
-        /* General dark theme improvements */
+        /* The main app background */
         .stApp {
-            background-color: #0E1117;
+            background-color: #1E2A3A; /* Deep Slate Blue */
         }
-        /* Custom title with gradient text */
+        
+        /* General text color for readability */
+        .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+            color: #E0E0E0; /* Soft Off-White */
+        }
+
+        /* Custom title with gradient text (retained from previous version) */
         .vibe-title {
             font-size: 3rem;
             font-weight: bold;
-            background: -webkit-linear-gradient(45deg, #7F00FF, #E100FF);
+            background: -webkit-linear-gradient(45deg, #00C9FF, #92FE9D); /* A fresh blue/green gradient */
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
+
         /* Custom caption styling */
         .vibe-caption {
             font-size: 1.1rem;
-            color: #A0A0A0;
+            color: #A0A0B0; /* Light Slate Gray for captions */
+        }
+        
+        /* Styling for Streamlit's expander to match the theme */
+        .st-emotion-cache-1h9usn1 {
+            border-color: #4A5568;
         }
     </style>
 """, unsafe_allow_html=True)
 
 
 # --- DATABASE SETUP ---
-# Using a new DB file for the final version.
 conn = st.connection("chat_db", type="sql", url="sqlite:///vibe_app.db", ttl=0)
 
 def init_db():
@@ -102,7 +113,7 @@ def get_sentiment_emoji(score):
 def show_welcome_screen():
     st.markdown('<p class="vibe-title">Welcome to Vibe</p>', unsafe_allow_html=True)
     st.markdown('<p class="vibe-caption">Real-time chat with a touch of intuition.</p>', unsafe_allow_html=True)
-    st.write("") # Spacer
+    st.write("")
     col1, col2, col3 = st.columns(3)
     if col1.button("🔒 Login", use_container_width=True): st.session_state.screen = "login"; st.rerun()
     if col2.button("✍️ Register", use_container_width=True): st.session_state.screen = "register"; st.rerun()
