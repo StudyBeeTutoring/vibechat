@@ -68,15 +68,12 @@ def clear_old_messages():
         s.commit()
 
 # --- GEOLOCATION COMPONENT ---
-def get_location_component(key="geoloc"): # <-- Added a default key
+# --- MODIFIED --- Removed the 'key' parameter as it's not supported.
+def get_location_component():
     """Returns an HTML component to get the user's location via browser API."""
     return components.html(
         """<script>
-        // Set a timeout for the geolocation request
-        const options = {
-          timeout: 5000, // 5 seconds
-        };
-
+        const options = { timeout: 5000 };
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 window.parent.postMessage({
@@ -85,7 +82,6 @@ def get_location_component(key="geoloc"): # <-- Added a default key
                 }, "*");
             },
             (error) => {
-                // Send an error message back to Streamlit if it fails
                 window.parent.postMessage({
                     type: "streamlit:setComponentValue",
                     value: { error: `Geolocation error: ${error.message}` }
@@ -94,8 +90,7 @@ def get_location_component(key="geoloc"): # <-- Added a default key
             options
         );
         </script>""",
-        height=0,
-        key=key # <-- Assign the stable key here
+        height=0
     )
 
 # --- UI SCREENS (Welcome, Login, Register, Guest, Change Password are unchanged) ---
@@ -202,20 +197,17 @@ def show_chat_screen():
             st.divider()
             show_change_password_form()
 
-    # --- ROBUST GEOLOCATION HANDLING ---
     if st.session_state.get('get_location', False):
-        loc_placeholder = st.empty() # Create a placeholder
-        with loc_placeholder:
-            st.info("Waiting for location data from your browser... Please grant permission if prompted.", icon="⏳")
-            # Give the component a stable key
-            location_data = get_location_component(key="geoloc_comp")
+        loc_placeholder = st.empty()
+        with loc_placeholder.container():
+            st.info("Waiting for location data from your browser...", icon="⏳")
+            # --- MODIFIED --- Call component without the unsupported 'key' argument
+            location_data = get_location_component()
         
         if location_data:
-            # Check if an error was returned from JS
             if "error" in location_data:
                 st.error(f"Could not get location: {location_data['error']}")
             else:
-                # Process the valid location data
                 try:
                     with conn.session as s:
                         s.execute(text("INSERT INTO user_locations (username, lat, lon, timestamp) VALUES (:u, :lat, :lon, :ts)"),
@@ -225,12 +217,9 @@ def show_chat_screen():
                 except Exception as e:
                     st.error(f"Database error: {e}")
             
-            # Reset the flag and clear the placeholder regardless of outcome
             st.session_state.get_location = False
             loc_placeholder.empty()
-            # No st.rerun() here, let autorefresh handle the map update
 
-    # --- MAIN UI TABS ---
     tab1, tab2 = st.tabs(["💬 Chat Room", "🗺️ Activity Map"])
     with tab1:
         chat_container = st.container(height=500)
