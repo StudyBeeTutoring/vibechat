@@ -16,43 +16,37 @@ def download_nltk_data():
     try:
         nltk.data.find('tokenizers/punkt')
     except LookupError:
-        # This will run once when the app container boots on Streamlit Cloud
         nltk.download('punkt')
 
 # --- CONFIGURATION ---
+APP_NAME = "Echo Chamber"
 SUPER_ADMIN_USERNAME = "admin"
 SUPER_ADMIN_DEFAULT_PASS = "admin123"
-APP_SALT = "a_super_secret_salt_for_a_managed_app_v6"
+APP_SALT = "a_chic_and_trendy_salt_for_echo_chamber"
 
 AVATARS = {
-    "Cat": "🐱", "Dog": "🐶", "Fox": "🦊", "Bear": "🐻",
-    "Panda": "🐼", "Tiger": "🐯", "Lion": "🦁", "Robot": "🤖"
+    "Vibe": "🎧", "Crystal": "💎", "Wave": "🌊", "Flame": "🔥",
+    "Star": "🌟", "Aura": "✨", "Pulse": "⚡️", "Zen": "🧘"
 }
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Managed Chat", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title=APP_NAME, page_icon="🎧", layout="wide")
 
 # --- DATABASE SETUP ---
-# Using a new DB file to ensure the schema is updated with all new columns.
-conn = st.connection("chat_db", type="sql", url="sqlite:///managed_chat_v1.db", ttl=0)
+conn = st.connection("chat_db", type="sql", url="sqlite:///echo_chamber.db", ttl=0)
 
 def init_db():
     with conn.session as s:
-        # Added 'status' and 'role' to users table
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY,
-                hashed_password TEXT NOT NULL,
-                avatar TEXT,
-                role TEXT DEFAULT 'user',
-                status TEXT DEFAULT 'active' -- 'active' or 'banned'
+                username TEXT PRIMARY KEY, hashed_password TEXT NOT NULL,
+                avatar TEXT, role TEXT DEFAULT 'user', status TEXT DEFAULT 'active'
             );
         """))
         s.execute(text("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY, username TEXT, avatar TEXT,
-                message TEXT, timestamp DATETIME,
-                sentiment REAL DEFAULT 0.0
+                message TEXT, timestamp DATETIME, sentiment REAL DEFAULT 0.0
             );
         """))
         admin_user = s.execute(text("SELECT * FROM users WHERE username = :user;"), params=dict(user=SUPER_ADMIN_USERNAME)).fetchone()
@@ -64,7 +58,7 @@ def init_db():
             """), params=dict(user=SUPER_ADMIN_USERNAME, hp=hashed_pass))
         s.commit()
 
-# --- SECURITY & DATA MANAGEMENT ---
+# --- SECURITY, NLP & HELPERS ---
 def hash_password(password):
     return hashlib.sha256((password + APP_SALT).encode()).hexdigest()
 def verify_password(stored_hash, provided_password):
@@ -72,10 +66,7 @@ def verify_password(stored_hash, provided_password):
 def clear_old_messages():
     cutoff_time = datetime.now() - timedelta(hours=1)
     with conn.session as s:
-        s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time))
-        s.commit()
-
-# --- NLP & HELPERS ---
+        s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time)); s.commit()
 def analyze_sentiment(text_message):
     return TextBlob(text_message).sentiment.polarity
 def get_sentiment_emoji(score):
@@ -85,8 +76,8 @@ def get_sentiment_emoji(score):
 
 # --- UI SCREENS ---
 def show_welcome_screen():
-    st.title("Welcome to the Managed Chat App ⚙️")
-    st.write("Log in, register, or join as a guest.")
+    st.title(f"Welcome to {APP_NAME} 🎧")
+    st.write("Join the conversation. Your echo awaits.")
     col1, col2, col3 = st.columns(3)
     if col1.button("🔒 Login", use_container_width=True): st.session_state.screen = "login"; st.rerun()
     if col2.button("✍️ Register", use_container_width=True): st.session_state.screen = "register"; st.rerun()
@@ -111,7 +102,6 @@ def show_login_screen():
                 st.error("Invalid username or password.")
     if st.button("← Back to Welcome"): st.session_state.screen = "welcome"; st.rerun()
 
-# (show_register_screen and show_guest_setup_screen are unchanged)
 def show_register_screen():
     st.header("Create a New Account")
     with st.form("register_form"):
@@ -143,54 +133,69 @@ def show_guest_setup_screen():
                 st.session_state.logged_in = True; st.session_state.username = f"{username} (Guest)"; st.session_state.avatar = AVATARS[avatar_label]; st.session_state.role = "guest"; st.session_state.screen = "chat"; st.rerun()
     if st.button("← Back to Welcome"): st.session_state.screen = "welcome"; st.rerun()
 
-
 def show_change_password_form(username_to_change, is_admin_reset=False):
     form_key = f"change_pass_{username_to_change}"
     if is_admin_reset:
         st.subheader(f"Reset Password for '{username_to_change}'")
     else:
         st.subheader("🔑 Change Your Password")
-
     with st.form(form_key):
         if not is_admin_reset:
             current_password = st.text_input("Current Password", type="password")
         new_password = st.text_input("New Password", type="password")
         confirm_password = st.text_input("Confirm New Password", type="password")
         submitted = st.form_submit_button("Change Password")
-
         if submitted:
-            # Verify current password if it's a self-change
             if not is_admin_reset:
                 with conn.session as s: user = s.execute(text("SELECT hashed_password FROM users WHERE username = :u"), params=dict(u=username_to_change)).fetchone()
                 if not verify_password(user.hashed_password, current_password):
-                    st.error("Current password is incorrect.")
-                    return
-            
-            # Validate new password
-            if new_password != confirm_password:
-                st.error("New passwords do not match.")
-            elif len(new_password) < 6:
-                st.error("New password must be at least 6 characters long.")
+                    st.error("Current password is incorrect."); return
+            if new_password != confirm_password: st.error("New passwords do not match.")
+            elif len(new_password) < 6: st.error("New password must be at least 6 characters long.")
             else:
                 new_hashed_password = hash_password(new_password)
-                with conn.session as s:
-                    s.execute(text("UPDATE users SET hashed_password = :hp WHERE username = :u"), params=dict(hp=new_hashed_password, u=username_to_change)); s.commit()
+                with conn.session as s: s.execute(text("UPDATE users SET hashed_password = :hp WHERE username = :u"), params=dict(hp=new_hashed_password, u=username_to_change)); s.commit()
                 st.success(f"Password for '{username_to_change}' changed successfully!")
-                if not is_admin_reset:
-                    st.session_state.admin_using_default_pass = False
+                if not is_admin_reset: st.session_state.admin_using_default_pass = False
                 time.sleep(1); st.rerun()
 
-def show_chat_vibe():
-    st.subheader("💬 Chat Vibe")
-    recent_sentiments = conn.query("SELECT sentiment FROM messages ORDER BY timestamp DESC LIMIT 20;")['sentiment'].tolist()
-    if recent_sentiments:
-        avg_sentiment = sum(recent_sentiments) / len(recent_sentiments)
-        vibe_emoji = get_sentiment_emoji(avg_sentiment)
-        st.metric(label=f"Overall Mood: {vibe_emoji}", value=f"{avg_sentiment:.2f}")
-        st.progress((avg_sentiment + 1) / 2)
-        st.caption("Based on the last 20 messages.")
-    else:
-        st.info("Not enough messages to determine the chat vibe.")
+def show_admin_dashboard():
+    st.subheader("🛡️ Admin Dashboard")
+    st.write("Moderate users and manage the chat room.")
+    
+    # User Management Section
+    st.markdown("---")
+    st.subheader("User Management")
+    # Using ttl=10 to ensure the user list is reasonably fresh.
+    all_users_df = conn.query("SELECT username, avatar, role, status FROM users ORDER BY username;", ttl=10)
+    
+    for index, user in all_users_df.iterrows():
+        if user.username == SUPER_ADMIN_USERNAME: continue
+        st.markdown(f"**{user.avatar} {user.username}** (`{user.role}`) - Status: **{user.status.capitalize()}**")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if user.status == 'active':
+                if st.button("🚫 Ban", key=f"ban_{user.username}", use_container_width=True, type="primary"):
+                    with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                    st.rerun()
+            else:
+                if st.button("✅ Unban", key=f"unban_{user.username}", use_container_width=True):
+                    with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                    st.rerun()
+        with col2:
+            with st.expander(f"Reset Password"):
+                show_change_password_form(user.username, is_admin_reset=True)
+
+    # Chat Controls Section
+    st.markdown("---")
+    st.subheader("Chat Controls")
+    if st.button("🚨 Clear All Messages", use_container_width=True):
+        with st.popover("Confirm Action"):
+            st.warning("This will permanently delete all messages. Are you sure?")
+            if st.button("Yes, Delete Everything", type="primary"):
+                with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
+                st.toast("Chat history cleared!"); st.rerun()
 
 def show_chat_screen():
     clear_old_messages()
@@ -204,64 +209,36 @@ def show_chat_screen():
         if st.button("Log Out"):
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
-        st.divider()
-        show_chat_vibe()
         
         if st.session_state.role == 'admin':
             st.divider()
-            with st.expander("🔑 Change Your Password"):
+            with st.expander("Admin Dashboard", expanded=True):
+                show_admin_dashboard()
+            st.divider()
+            with st.expander("Change Your Password"):
                 show_change_password_form(st.session_state.username)
 
-    tab1, tab2 = st.tabs(["💬 Chat Room", "🛡️ Admin Panel"])
-    with tab1:
-        st.title("Global Chat Room")
-        st.caption("Messages are automatically deleted after 1 hour.")
-        chat_container = st.container(height=500)
-        with chat_container:
-            messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
-            for _, row in messages_df.iterrows():
-                with st.chat_message(name=row["username"], avatar=row["avatar"]):
-                    sentiment_emoji = get_sentiment_emoji(row['sentiment'])
-                    st.markdown(f"**{row['username']}** {sentiment_emoji}")
-                    st.write(row["message"])
-                    ts = pd.to_datetime(row["timestamp"])
-                    st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
-        if prompt := st.chat_input("Say something..."):
-            sentiment_score = analyze_sentiment(prompt)
-            with conn.session as s:
-                s.execute(text("INSERT INTO messages (username, avatar, message, timestamp, sentiment) VALUES (:u, :a, :m, :ts, :senti);"),
-                          params=dict(u=st.session_state.username, a=st.session_state.avatar, m=prompt, ts=datetime.now(), senti=sentiment_score))
-                s.commit()
-            st.rerun()
+    st.title(f"Welcome to the {APP_NAME}")
+    st.caption("Messages are ephemeral and vanish after 1 hour. What will you echo?")
 
-    with tab2:
-        if st.session_state.role != 'admin':
-            st.error("You do not have permission to view this page.")
-        else:
-            st.header("User Management Dashboard")
-            st.info("From here, you can ban/unban users and reset their passwords.")
-            all_users_df = conn.query("SELECT username, avatar, role, status FROM users ORDER BY username;")
-            
-            for index, user in all_users_df.iterrows():
-                if user.username == SUPER_ADMIN_USERNAME: continue # Admin cannot ban themselves
-                
-                st.divider()
-                col1, col2, col3 = st.columns([2, 2, 3])
-                col1.markdown(f"**{user.avatar} {user.username}** (`{user.role}`)")
-                col2.markdown(f"Status: **{user.status.capitalize()}**")
+    chat_container = st.container(height=500)
+    with chat_container:
+        messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
+        for _, row in messages_df.iterrows():
+            with st.chat_message(name=row["username"], avatar=row["avatar"]):
+                sentiment_emoji = get_sentiment_emoji(row['sentiment'])
+                st.markdown(f"**{row['username']}** {sentiment_emoji}")
+                st.write(row["message"])
+                ts = pd.to_datetime(row["timestamp"])
+                st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
 
-                with col3:
-                    if user.status == 'active':
-                        if st.button("🚫 Ban User", key=f"ban_{user.username}", type="primary"):
-                            with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                            st.rerun()
-                    else:
-                        if st.button("✅ Unban User", key=f"unban_{user.username}"):
-                            with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                            st.rerun()
-                
-                with st.expander(f"Reset password for '{user.username}'"):
-                    show_change_password_form(user.username, is_admin_reset=True)
+    if prompt := st.chat_input("Echo your thoughts..."):
+        sentiment_score = analyze_sentiment(prompt)
+        with conn.session as s:
+            s.execute(text("INSERT INTO messages (username, avatar, message, timestamp, sentiment) VALUES (:u, :a, :m, :ts, :senti);"),
+                      params=dict(u=st.session_state.username, a=st.session_state.avatar, m=prompt, ts=datetime.now(), senti=sentiment_score))
+            s.commit()
+        st.rerun()
 
 # --- MAIN APP ROUTER ---
 download_nltk_data()
