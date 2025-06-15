@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta # <- ADD timedelta
+from datetime import datetime, timedelta
 from sqlalchemy import text
 import time
 from streamlit_autorefresh import st_autorefresh
@@ -22,7 +22,6 @@ AVATARS = {
 st.set_page_config(page_title="Streamlit Advanced Chat", page_icon="🌐", layout="wide")
 
 # --- DATABASE SETUP ---
-# Using a new DB file to ensure schema is fresh
 conn = st.connection("chat_db", type="sql", url="sqlite:///advanced_chat_v4.db", ttl=0)
 
 def init_db():
@@ -62,30 +61,44 @@ def hash_password(password):
 def verify_password(stored_hash, provided_password):
     return stored_hash == hash_password(provided_password)
 
-# --- NEW --- Function to clear old messages
 def clear_old_messages():
-    """Deletes messages from the database that are older than 1 hour."""
     cutoff_time = datetime.now() - timedelta(hours=1)
     with conn.session as s:
-        s.execute(
-            text("DELETE FROM messages WHERE timestamp < :cutoff;"),
-            params=dict(cutoff=cutoff_time)
-        )
+        s.execute(text("DELETE FROM messages WHERE timestamp < :cutoff;"), params=dict(cutoff=cutoff_time))
         s.commit()
 
 # --- GEOLOCATION COMPONENT ---
-def get_location_component():
+def get_location_component(key="geoloc"): # <-- Added a default key
+    """Returns an HTML component to get the user's location via browser API."""
     return components.html(
         """<script>
-        navigator.geolocation.getCurrentPosition((position) => {
-            window.parent.postMessage({
-                type: "streamlit:setComponentValue",
-                value: { lat: position.coords.latitude, lon: position.coords.longitude }
-            }, "*");
-        });
-        </script>""", height=0)
+        // Set a timeout for the geolocation request
+        const options = {
+          timeout: 5000, // 5 seconds
+        };
 
-# --- UI SCREENS (Welcome, Login, Register, Guest screens are unchanged) ---
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                window.parent.postMessage({
+                    type: "streamlit:setComponentValue",
+                    value: { lat: position.coords.latitude, lon: position.coords.longitude }
+                }, "*");
+            },
+            (error) => {
+                // Send an error message back to Streamlit if it fails
+                window.parent.postMessage({
+                    type: "streamlit:setComponentValue",
+                    value: { error: `Geolocation error: ${error.message}` }
+                }, "*");
+            },
+            options
+        );
+        </script>""",
+        height=0,
+        key=key # <-- Assign the stable key here
+    )
+
+# --- UI SCREENS (Welcome, Login, Register, Guest, Change Password are unchanged) ---
 def show_welcome_screen():
     st.title("Welcome to the Advanced Chat App 🌐")
     st.write("Log in to an existing account, register a new one, or join temporarily as a guest.")
@@ -101,15 +114,12 @@ def show_login_screen():
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Login")
         if submitted:
-            with conn.session as s:
-                user = s.execute(text("SELECT * FROM users WHERE username = :u;"), params=dict(u=username)).fetchone()
+            with conn.session as s: user = s.execute(text("SELECT * FROM users WHERE username = :u;"), params=dict(u=username)).fetchone()
             if user and verify_password(user.hashed_password, password):
                 st.session_state.logged_in = True; st.session_state.username = user.username; st.session_state.avatar = user.avatar; st.session_state.role = user.role; st.session_state.screen = "chat"
-                if user.role == 'admin' and verify_password(user.hashed_password, SUPER_ADMIN_DEFAULT_PASS):
-                    st.session_state.admin_using_default_pass = True
+                if user.role == 'admin' and verify_password(user.hashed_password, SUPER_ADMIN_DEFAULT_PASS): st.session_state.admin_using_default_pass = True
                 st.success("Login successful!"); time.sleep(1); st.rerun()
-            else:
-                st.error("Invalid username or password.")
+            else: st.error("Invalid username or password.")
     if st.button("← Back to Welcome"): st.session_state.screen = "welcome"; st.rerun()
 
 def show_register_screen():
@@ -124,8 +134,7 @@ def show_register_screen():
             else:
                 hashed_pass = hash_password(password)
                 try:
-                    with conn.session as s:
-                        s.execute(text("INSERT INTO users (username, hashed_password, avatar) VALUES (:u, :hp, :a);"), params=dict(u=username, hp=hashed_pass, a=AVATARS[avatar_label])); s.commit()
+                    with conn.session as s: s.execute(text("INSERT INTO users (username, hashed_password, avatar) VALUES (:u, :hp, :a);"), params=dict(u=username, hp=hashed_pass, a=AVATARS[avatar_label])); s.commit()
                     st.success("Registration successful! Please log in."); time.sleep(1); st.session_state.screen = "login"; st.rerun()
                 except Exception as e:
                     if "UNIQUE constraint failed" in str(e): st.error("Username already exists.")
@@ -152,19 +161,16 @@ def show_change_password_form():
         confirm_password = st.text_input("Confirm New Password", type="password")
         submitted = st.form_submit_button("Change Password")
         if submitted:
-            with conn.session as s:
-                user = s.execute(text("SELECT hashed_password FROM users WHERE username = :u"), params=dict(u=st.session_state.username)).fetchone()
+            with conn.session as s: user = s.execute(text("SELECT hashed_password FROM users WHERE username = :u"), params=dict(u=st.session_state.username)).fetchone()
             if not verify_password(user.hashed_password, current_password): st.error("Current password is incorrect.")
             elif new_password != confirm_password: st.error("New passwords do not match.")
             elif len(new_password) < 6: st.error("New password must be at least 6 characters long.")
             else:
                 new_hashed_password = hash_password(new_password)
-                with conn.session as s:
-                    s.execute(text("UPDATE users SET hashed_password = :hp WHERE username = :u"), params=dict(hp=new_hashed_password, u=st.session_state.username)); s.commit()
+                with conn.session as s: s.execute(text("UPDATE users SET hashed_password = :hp WHERE username = :u"), params=dict(hp=new_hashed_password, u=st.session_state.username)); s.commit()
                 st.success("Password changed successfully!"); st.session_state.admin_using_default_pass = False; time.sleep(1); st.rerun()
 
 def show_chat_screen():
-    # --- MODIFIED --- Run cleanup first
     clear_old_messages()
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
 
@@ -189,31 +195,42 @@ def show_chat_screen():
                 if st.button("🚨 Clear All Messages", type="primary", use_container_width=True):
                     with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
                     st.toast("Chat history cleared!"); st.rerun()
-                
-                # --- NEW --- Admin view of the user database
                 st.subheader("Registered Users")
                 all_users_df = conn.query("SELECT username, avatar, role FROM users ORDER BY username;")
-                st.dataframe(all_users_df, use_container_width=True)
+                st.dataframe(all_users_df, use_container_width=True, hide_index=True)
                 st.caption("Note: Hashed passwords are not displayed for security.")
-
             st.divider()
             show_change_password_form()
 
-    loc_placeholder = st.empty()
+    # --- ROBUST GEOLOCATION HANDLING ---
     if st.session_state.get('get_location', False):
-        with loc_placeholder.container():
-            location_data = get_location_component()
-            if location_data:
+        loc_placeholder = st.empty() # Create a placeholder
+        with loc_placeholder:
+            st.info("Waiting for location data from your browser... Please grant permission if prompted.", icon="⏳")
+            # Give the component a stable key
+            location_data = get_location_component(key="geoloc_comp")
+        
+        if location_data:
+            # Check if an error was returned from JS
+            if "error" in location_data:
+                st.error(f"Could not get location: {location_data['error']}")
+            else:
+                # Process the valid location data
                 try:
-                    location_data = json.loads(location_data)
                     with conn.session as s:
-                        s.execute(text("INSERT INTO user_locations (username, lat, lon, timestamp) VALUES (:u, :lat, :lon, :ts)"), params=dict(u=st.session_state.username, lat=location_data['lat'], lon=location_data['lon'], ts=datetime.now())); s.commit()
-                    st.toast(f"Location updated!")
-                except (json.JSONDecodeError, TypeError) as e:
-                    st.error(f"Error processing location data: {e}")
-                finally:
-                    st.session_state.get_location = False; loc_placeholder.empty(); st.rerun()
+                        s.execute(text("INSERT INTO user_locations (username, lat, lon, timestamp) VALUES (:u, :lat, :lon, :ts)"),
+                                  params=dict(u=st.session_state.username, lat=location_data['lat'], lon=location_data['lon'], ts=datetime.now()))
+                        s.commit()
+                    st.toast(f"Location updated successfully!")
+                except Exception as e:
+                    st.error(f"Database error: {e}")
+            
+            # Reset the flag and clear the placeholder regardless of outcome
+            st.session_state.get_location = False
+            loc_placeholder.empty()
+            # No st.rerun() here, let autorefresh handle the map update
 
+    # --- MAIN UI TABS ---
     tab1, tab2 = st.tabs(["💬 Chat Room", "🗺️ Activity Map"])
     with tab1:
         chat_container = st.container(height=500)
