@@ -68,9 +68,7 @@ def clear_old_messages():
         s.commit()
 
 # --- GEOLOCATION COMPONENT ---
-# --- MODIFIED --- Removed the 'key' parameter as it's not supported.
 def get_location_component():
-    """Returns an HTML component to get the user's location via browser API."""
     return components.html(
         """<script>
         const options = { timeout: 5000 };
@@ -89,14 +87,12 @@ def get_location_component():
             },
             options
         );
-        </script>""",
-        height=0
-    )
+        </script>""", height=0)
 
-# --- UI SCREENS (Welcome, Login, Register, Guest, Change Password are unchanged) ---
+# --- UI SCREENS ---
 def show_welcome_screen():
     st.title("Welcome to the Advanced Chat App 🌐")
-    st.write("Log in to an existing account, register a new one, or join temporarily as a guest.")
+    st.write("Log in, register, or join as a guest.")
     col1, col2, col3 = st.columns(3)
     if col1.button("🔒 Login", use_container_width=True): st.session_state.screen = "login"; st.rerun()
     if col2.button("✍️ Register", use_container_width=True): st.session_state.screen = "register"; st.rerun()
@@ -170,7 +166,7 @@ def show_chat_screen():
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
 
     if st.session_state.get("admin_using_default_pass", False):
-        st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it immediately in the sidebar.", icon="⚠️")
+        st.warning("🚨 **Security Alert:** You are using the default administrator password. Please change it in the sidebar.", icon="⚠️")
     
     with st.sidebar:
         st.title(f"{st.session_state.avatar} {st.session_state.username}")
@@ -197,29 +193,35 @@ def show_chat_screen():
             st.divider()
             show_change_password_form()
 
+    # --- NEW, ROBUST GEOLOCATION LOGIC ---
     if st.session_state.get('get_location', False):
-        loc_placeholder = st.empty()
-        with loc_placeholder.container():
-            st.info("Waiting for location data from your browser...", icon="⏳")
-            # --- MODIFIED --- Call component without the unsupported 'key' argument
-            location_data = get_location_component()
+        # First, display the component to trigger the JS request
+        location_data = get_location_component()
         
+        # Display a waiting message while the component gets data
+        st.info("Waiting for location data from your browser... Please grant permission if prompted.", icon="⏳")
+
+        # Now, check if the component has returned a value on this rerun
         if location_data:
-            if "error" in location_data:
-                st.error(f"Could not get location: {location_data['error']}")
-            else:
-                try:
+            # It has a value, so we can process it and reset the state
+            try:
+                # The component returns a JSON string, so we parse it
+                data = json.loads(location_data)
+                if "error" in data:
+                    st.error(f"Could not get location: {data['error']}")
+                else:
                     with conn.session as s:
                         s.execute(text("INSERT INTO user_locations (username, lat, lon, timestamp) VALUES (:u, :lat, :lon, :ts)"),
-                                  params=dict(u=st.session_state.username, lat=location_data['lat'], lon=location_data['lon'], ts=datetime.now()))
+                                  params=dict(u=st.session_state.username, lat=data['lat'], lon=data['lon'], ts=datetime.now()))
                         s.commit()
-                    st.toast(f"Location updated successfully!")
-                except Exception as e:
-                    st.error(f"Database error: {e}")
-            
-            st.session_state.get_location = False
-            loc_placeholder.empty()
-
+                    st.toast("Location updated successfully!")
+            except (json.JSONDecodeError, TypeError) as e:
+                st.error(f"Error processing location data: {e}")
+            finally:
+                # IMPORTANT: Reset the flag to stop this block from running again
+                st.session_state.get_location = False
+                st.rerun() # Force a rerun to clear the "Waiting..." message and update the map
+    
     tab1, tab2 = st.tabs(["💬 Chat Room", "🗺️ Activity Map"])
     with tab1:
         chat_container = st.container(height=500)
@@ -239,7 +241,7 @@ def show_chat_screen():
         st.header("User Location Map")
         locations_df = conn.query("""SELECT username, lat, lon FROM user_locations WHERE id IN (SELECT MAX(id) FROM user_locations GROUP BY username);""", ttl=10)
         if not locations_df.empty: st.map(locations_df)
-        else: st.info("No user locations have been shared yet. Click 'Update My Location' in the sidebar to appear on the map!")
+        else: st.info("No user locations have been shared yet.")
 
 # --- MAIN APP ROUTER ---
 init_db()
