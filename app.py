@@ -18,11 +18,11 @@ def download_nltk_data():
     except LookupError:
         nltk.download('punkt')
 
-# --- CONFIGURATION ---
-APP_NAME = "Echo Chamber"
-SUPER_ADMIN_USERNAME = "admin"
-SUPER_ADMIN_DEFAULT_PASS = "admin123"
-APP_SALT = "a_chic_and_trendy_salt_for_echo_chamber"
+# --- CONFIGURATION (NOW USING SECRETS) ---
+APP_NAME = "Vibe"
+SUPER_ADMIN_USERNAME = st.secrets["SUPER_ADMIN_USERNAME"]
+SUPER_ADMIN_DEFAULT_PASS = st.secrets["SUPER_ADMIN_DEFAULT_PASS"]
+APP_SALT = st.secrets["APP_SALT"]
 
 AVATARS = {
     "Vibe": "🎧", "Crystal": "💎", "Wave": "🌊", "Flame": "🔥",
@@ -30,10 +30,35 @@ AVATARS = {
 }
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title=APP_NAME, page_icon="🎧", layout="wide")
+st.set_page_config(page_title=APP_NAME, page_icon="✨", layout="wide")
+
+# --- CUSTOM STYLING (THE "CHIC" PART) ---
+st.markdown("""
+    <style>
+        /* General dark theme improvements */
+        .stApp {
+            background-color: #0E1117;
+        }
+        /* Custom title with gradient text */
+        .vibe-title {
+            font-size: 3rem;
+            font-weight: bold;
+            background: -webkit-linear-gradient(45deg, #7F00FF, #E100FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        /* Custom caption styling */
+        .vibe-caption {
+            font-size: 1.1rem;
+            color: #A0A0A0;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 
 # --- DATABASE SETUP ---
-conn = st.connection("chat_db", type="sql", url="sqlite:///echo_chamber.db", ttl=0)
+# Using a new DB file for the final version.
+conn = st.connection("chat_db", type="sql", url="sqlite:///vibe_app.db", ttl=0)
 
 def init_db():
     with conn.session as s:
@@ -75,8 +100,9 @@ def get_sentiment_emoji(score):
 
 # --- UI SCREENS ---
 def show_welcome_screen():
-    st.title(f"Welcome to {APP_NAME} 🎧")
-    st.write("Join the conversation. Your echo awaits.")
+    st.markdown('<p class="vibe-title">Welcome to Vibe</p>', unsafe_allow_html=True)
+    st.markdown('<p class="vibe-caption">Real-time chat with a touch of intuition.</p>', unsafe_allow_html=True)
+    st.write("") # Spacer
     col1, col2, col3 = st.columns(3)
     if col1.button("🔒 Login", use_container_width=True): st.session_state.screen = "login"; st.rerun()
     if col2.button("✍️ Register", use_container_width=True): st.session_state.screen = "register"; st.rerun()
@@ -104,7 +130,7 @@ def show_register_screen():
     with st.form("register_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        avatar_label = st.selectbox("Choose Your Avatar", options=list(AVATARS.keys()))
+        avatar_label = st.selectbox("Choose Your Vibe", options=list(AVATARS.keys()))
         submitted = st.form_submit_button("Register")
         if submitted:
             if not username or not password: st.warning("Please fill out all fields.")
@@ -122,7 +148,7 @@ def show_guest_setup_screen():
     st.header("Enter as a Guest")
     with st.form("guest_form"):
         username = st.text_input("Guest Username")
-        avatar_label = st.selectbox("Choose Your Avatar", options=list(AVATARS.keys()))
+        avatar_label = st.selectbox("Choose Your Vibe", options=list(AVATARS.keys()))
         submitted = st.form_submit_button("Enter Chat")
         if submitted:
             if not username: st.warning("Please enter a username.")
@@ -156,6 +182,40 @@ def show_change_password_form(username_to_change, is_admin_reset=False):
                 if not is_admin_reset: st.session_state.admin_using_default_pass = False
                 time.sleep(1); st.rerun()
 
+def show_admin_dashboard():
+    st.subheader("🛡️ Admin Dashboard")
+    st.write("Moderate users and manage the chat room.")
+    
+    st.markdown("---")
+    st.subheader("User Management")
+    all_users_df = conn.query("SELECT username, avatar, role, status FROM users ORDER BY username;", ttl=10)
+    
+    for _, user in all_users_df.iterrows():
+        if user.username == SUPER_ADMIN_USERNAME: continue
+        st.markdown(f"**{user.avatar} {user.username}** (`{user.role}`) - Status: **{user.status.capitalize()}**")
+        col1, col2 = st.columns(2)
+        with col1:
+            if user.status == 'active':
+                if st.button("🚫 Ban", key=f"ban_{user.username}", use_container_width=True, type="primary"):
+                    with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                    st.rerun()
+            else:
+                if st.button("✅ Unban", key=f"unban_{user.username}", use_container_width=True):
+                    with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                    st.rerun()
+        with col2:
+            with st.popover("Reset Password", use_container_width=True):
+                show_change_password_form(user.username, is_admin_reset=True)
+        st.markdown("---")
+
+    st.subheader("Chat Controls")
+    if st.button("🚨 Clear All Messages", use_container_width=True):
+        with st.popover("Confirm Action"):
+            st.warning("This will permanently delete all messages.")
+            if st.button("Yes, Delete Everything", type="primary"):
+                with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
+                st.toast("Chat history cleared!"); st.rerun()
+
 def show_chat_screen():
     clear_old_messages()
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
@@ -169,48 +229,18 @@ def show_chat_screen():
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
         
-        # --- MODIFIED: Admin controls are now separate expanders ---
         if st.session_state.role == 'admin':
             st.divider()
-            st.subheader("🛡️ Admin Panel")
-            
-            with st.expander("User Management"):
-                all_users_df = conn.query("SELECT username, avatar, role, status FROM users ORDER BY username;", ttl=10)
-                for index, user in all_users_df.iterrows():
-                    if user.username == SUPER_ADMIN_USERNAME: continue
-                    
-                    st.markdown(f"**{user.avatar} {user.username}** (`{user.role}`)")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if user.status == 'active':
-                            if st.button("🚫 Ban", key=f"ban_{user.username}", use_container_width=True, type="primary"):
-                                with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                                st.rerun()
-                        else:
-                            if st.button("✅ Unban", key=f"unban_{user.username}", use_container_width=True):
-                                with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                                st.rerun()
-                    with col2:
-                        # Password reset is now a popover for a cleaner look
-                        with st.popover("Reset Password", use_container_width=True):
-                            show_change_password_form(user.username, is_admin_reset=True)
-                    st.markdown("---")
-            
-            with st.expander("Chat Controls"):
-                if st.button("🚨 Clear All Messages", use_container_width=True):
-                    with st.popover("Confirm Action"):
-                        st.warning("This will permanently delete all messages.")
-                        if st.button("Yes, Delete Everything", type="primary"):
-                            with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
-                            st.toast("Chat history cleared!"); st.rerun()
-
+            with st.expander("Admin Dashboard", expanded=True):
+                show_admin_dashboard()
+            st.divider()
             with st.expander("Change Your Password"):
                 show_change_password_form(st.session_state.username)
 
-    st.title(f"Welcome to the {APP_NAME}")
-    st.caption("Messages are ephemeral and vanish after 1 hour. What will you echo?")
+    st.markdown('<p class="vibe-title">Vibe</p>', unsafe_allow_html=True)
+    st.caption("Messages are ephemeral and vanish after 1 hour. What's your vibe?")
 
-    chat_container = st.container(height=500)
+    chat_container = st.container(height=500, border=False)
     with chat_container:
         messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
         for _, row in messages_df.iterrows():
@@ -221,7 +251,7 @@ def show_chat_screen():
                 ts = pd.to_datetime(row["timestamp"])
                 st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
 
-    if prompt := st.chat_input("Echo your thoughts..."):
+    if prompt := st.chat_input("Share your vibe..."):
         sentiment_score = analyze_sentiment(prompt)
         with conn.session as s:
             s.execute(text("INSERT INTO messages (username, avatar, message, timestamp, sentiment) VALUES (:u, :a, :m, :ts, :senti);"),
