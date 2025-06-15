@@ -36,29 +36,21 @@ st.set_page_config(page_title=APP_NAME, page_icon="✨", layout="wide")
 st.markdown("""
     <style>
         /* The main app background */
-        .stApp {
-            background-color: #1E2A3A; /* Deep Slate Blue */
-        }
-        
-        /* General text color for readability */
-        .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
-            color: #E0E0E0; /* Soft Off-White */
-        }
-
-        /* Custom title with gradient text (retained from previous version) */
-        .vibe-title {
-            font-size: 3rem;
-            font-weight: bold;
-            background: -webkit-linear-gradient(45deg, #00C9FF, #92FE9D); /* A fresh blue/green gradient */
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        /* Custom caption styling */
-        .vibe-caption {
-            font-size: 1.1rem;
-            color: #A0A0B0; /* Light Slate Gray for captions */
-        }
+        /* Deep Amethyst Theme */
+.stApp {
+    background-color: #2C003E; /* Rich dark purple */
+}
+.stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+    color: #EAE6F8; /* Light lavender */
+}
+.vibe-title {
+    background: -webkit-linear-gradient(45deg, #9796F0, #FBC7D4); /* Lavender to pink gradient */
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.vibe-caption {
+    color: #9A86A8; /* Muted lavender */
+}
         
         /* Styling for Streamlit's expander to match the theme */
         .st-emotion-cache-1h9usn1 {
