@@ -9,16 +9,16 @@ import hashlib
 from textblob import TextBlob
 import nltk
 
-# --- ONE-TIME SETUP for TextBlob ---
+
 @st.cache_resource
 def download_nltk_data():
-    """Downloads the necessary NLTK models for TextBlob sentiment analysis."""
+    
     try:
         nltk.data.find('tokenizers/punkt')
     except LookupError:
         nltk.download('punkt')
 
-# --- CONFIGURATION (USING SECRETS) ---
+
 APP_NAME = "Crème"
 SUPER_ADMIN_USERNAME = st.secrets["SUPER_ADMIN_USERNAME"]
 SUPER_ADMIN_DEFAULT_PASS = st.secrets["SUPER_ADMIN_DEFAULT_PASS"]
@@ -29,10 +29,10 @@ AVATARS = {
     "Feather": "🪶", "Dove": "🕊️", "Lotus": "🌸", "Harp": "🎼"
 }
 
-# --- PAGE CONFIGURATION ---
+
 st.set_page_config(page_title=APP_NAME, page_icon="🍦", layout="wide")
 
-# --- CUSTOM STYLING (THE "CRÈME" THEME) ---
+
 st.markdown("""
     <style>
         /* Main App & Text */
@@ -102,8 +102,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- DATABASE SETUP ---
-# Using a new DB file for the final version.
+
+
 conn = st.connection("chat_db", type="sql", url="sqlite:///creme_app.db", ttl=0)
 
 def init_db():
@@ -129,7 +129,7 @@ def init_db():
             """), params=dict(user=SUPER_ADMIN_USERNAME, hp=hashed_pass))
         s.commit()
 
-# --- SECURITY, NLP & HELPERS ---
+
 def hash_password(password):
     return hashlib.sha256((password + APP_SALT).encode()).hexdigest()
 def verify_password(stored_hash, provided_password):
@@ -144,7 +144,7 @@ def get_sentiment_emoji(score):
     elif score < -0.1: return "😠"
     else: return "😐"
 
-# --- UI SCREENS ---
+
 def show_welcome_screen():
     st.markdown(f'<p class="creme-title">Welcome to {APP_NAME}</p>', unsafe_allow_html=True)
     st.caption("A soft place to land your thoughts.")
@@ -305,7 +305,9 @@ def show_chat_screen():
             s.commit()
         st.rerun()
 
-# --- MAIN APP ROUTER ---
+
+
+
 download_nltk_data()
 init_db()
 if 'screen' not in st.session_state: st.session_state.screen = "welcome"
