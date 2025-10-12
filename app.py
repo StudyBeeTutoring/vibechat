@@ -35,6 +35,7 @@ st.set_page_config(page_title=APP_NAME, page_icon="🍦", layout="wide")
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
         
         /* Main App & Text */
         html, body, [class*="st-"] {
