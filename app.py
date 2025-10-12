@@ -32,11 +32,18 @@ AVATARS = {
 st.set_page_config(page_title=APP_NAME, page_icon="🍦", layout="wide")
 
 # --- STYLES: The Complete UI Overhaul ---
+# --- STYLES: The Complete UI Overhaul ---
 st.markdown("""
+    <!-- 1. Font Imports: Using <link> for better loading -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;700&display=swap');
-        @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-        
+        /* 2. Specific rule for icons to override the general font */
+        .st-emotion-cache-1oe5k7p, .st-emotion-cache-19rxjzo, [data-testid="stTickData"], [data-testid="stMetricValue"], [data-testid="stImage"] {
+            font-family: 'Material Icons', sans-serif !important;
+        }
+
         /* Main App & Text */
         html, body, [class*="st-"] {
             font-family: 'Quicksand', sans-serif;
@@ -140,7 +147,6 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-
 
 # --- Database Setup and Helpers ---
 conn = st.connection("chat_db", type="sql", url="sqlite:///creme_app.db")
