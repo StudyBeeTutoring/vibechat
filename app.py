@@ -186,8 +186,10 @@ def show_welcome_screen():
         st.session_state.screen = "register"
         st.rerun()
     
-    # NEW: Conditionally show the guest button based on admin settings
-    guest_disabled = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'").iloc[0]['value'] == 'true'
+    # FIX: Set ttl=0 to ensure the latest state is always fetched from the DB.
+    guest_disabled_df = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'", ttl=0)
+    guest_disabled = guest_disabled_df.iloc[0]['value'] == 'true'
+    
     if not guest_disabled:
         if col3.button("👤 Continue as Guest", use_container_width=True):
             st.session_state.screen = "guest_setup"
@@ -322,7 +324,7 @@ def show_admin_dashboard():
     st.subheader("Global Chat Controls")
 
     # Chat-wide mute control
-    mute_status_df = conn.query("SELECT value FROM app_state WHERE key = 'chat_mute_until' LIMIT 1")
+    mute_status_df = conn.query("SELECT value FROM app_state WHERE key = 'chat_mute_until' LIMIT 1", ttl=0)
     chat_mute_until = pd.to_datetime(mute_status_df['value'][0])
     
     if chat_mute_until > datetime.now():
@@ -346,7 +348,7 @@ def show_admin_dashboard():
                 st.rerun()
 
     # Disable guest login control
-    guest_disabled_val = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'").iloc[0]['value']
+    guest_disabled_val = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'", ttl=0).iloc[0]['value']
     guest_login_disabled = guest_disabled_val == 'true'
 
     if guest_login_disabled:
@@ -358,16 +360,27 @@ def show_admin_dashboard():
             with conn.session as s: s.execute(text("UPDATE app_state SET value='true' WHERE key='guest_login_disabled'")); s.commit()
             st.rerun()
 
-    # Clear all messages control
-    if st.button("🚨 Clear All Messages", use_container_width=True):
-        with st.popover("Confirm Action"):
-            st.warning("This will permanently delete all messages.")
-            if st.button("Yes, Delete Everything", type="primary"):
-                with conn.session as s:
-                    s.execute(text("DELETE FROM messages;"))
-                    s.commit()
-                st.toast("Chat history cleared!")
-                st.rerun()
+    # FIX: Reworked "Clear all messages" to be more robust using session_state for confirmation.
+    st.divider()
+    if st.session_state.get("confirm_delete_all_messages", False):
+        st.warning("**Are you sure?** This will permanently delete all messages.", icon="⚠️")
+        c1, c2 = st.columns(2)
+        if c1.button("Yes, Delete Everything", use_container_width=True, type="primary"):
+            with conn.session as s:
+                s.execute(text("DELETE FROM messages;"))
+                s.commit()
+            st.session_state.confirm_delete_all_messages = False
+            st.toast("Chat history cleared!")
+            time.sleep(1)
+            st.rerun()
+        if c2.button("Cancel", use_container_width=True):
+            st.session_state.confirm_delete_all_messages = False
+            st.rerun()
+    else:
+        if st.button("🚨 Clear All Messages", use_container_width=True):
+            st.session_state.confirm_delete_all_messages = True
+            st.rerun()
+
 
     # --- User Management ---
     st.markdown("---")
