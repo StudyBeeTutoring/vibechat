@@ -34,17 +34,18 @@ st.set_page_config(page_title=APP_NAME, page_icon="🍦", layout="wide")
 # --- STYLES: The Complete UI Overhaul ---
 # --- STYLES: The Complete UI Overhaul ---
 st.markdown("""
-    <!-- 1. Font Imports: Using <link> for better loading -->
+    <!-- 1. Import Google Fonts and Icons using <link> for reliability -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;700&display=swap">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
     <style>
-        /* 2. Specific rule for icons to override the general font */
-        .st-emotion-cache-1oe5k7p, .st-emotion-cache-19rxjzo, [data-testid="stTickData"], [data-testid="stMetricValue"], [data-testid="stImage"] {
-            font-family: 'Material Icons', sans-serif !important;
+        /* 2. THE FIX: Create a specific rule for icons inside Streamlit components */
+        /* This targets the spans that hold the icons in selectboxes and expanders */
+        [data-testid="stSelectbox"] span, [data-testid="stExpanderHeader"] span {
+            font-family: 'Material Icons' !important;
         }
 
-        /* Main App & Text */
+        /* Main App & Text (This is the rule that causes the issue, so we override it above) */
         html, body, [class*="st-"] {
             font-family: 'Quicksand', sans-serif;
         }
