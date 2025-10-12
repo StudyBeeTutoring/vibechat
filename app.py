@@ -4,12 +4,11 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 import time
 from streamlit_autorefresh import st_autorefresh
-import json
 import hashlib
 from textblob import TextBlob
 import nltk
 
-
+# --- Initial Setup: NLTK Data Download ---
 @st.cache_resource
 def download_nltk_data():
     """Download the NLTK 'punkt' tokenizer if not already present."""
@@ -17,7 +16,6 @@ def download_nltk_data():
         nltk.data.find('tokenizers/punkt')
     except LookupError:
         nltk.download('punkt')
-
 
 # --- Constants and Configuration ---
 APP_NAME = "Crème"
@@ -30,128 +28,139 @@ AVATARS = {
     "Feather": "🪶", "Dove": "🕊️", "Lotus": "🌸", "Harp": "🎼"
 }
 
-
 # --- Page and Style Configuration ---
 st.set_page_config(page_title=APP_NAME, page_icon="🍦", layout="wide")
 
+# --- STYLES: The Complete UI Overhaul ---
 st.markdown("""
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;700&display=swap');
+        
         /* Main App & Text */
-        .stApp {
-            background-color: #FFF8E7; /* The main creamy background */
+        html, body, [class*="st-"] {
+            font-family: 'Quicksand', sans-serif;
         }
-        body, .stApp, p, h1, h2, h3, h4, h5, h6, .st-emotion-cache-16idsys p {
-            color: #4A4A4A; /* Dark, readable slate gray */
+        .stApp {
+            background-color: #FDF5E6; /* A warmer, softer cream */
+        }
+        p, h1, h2, h3, h4, h5, h6, .st-emotion-cache-16idsys p {
+            color: #5E454B; /* A warm, dark brown for text */
         }
         
         /* Sidebar */
         [data-testid="stSidebar"] {
-            background-color: #FFFFFF; /* A clean, crisp white for the sidebar */
-            border-right: 1px solid #E0E0E0;
+            background-color: #FFFFFF;
+            border-right: 2px solid #F5EADD;
         }
 
-        /* Custom Title with Gradient Text */
+        /* Custom Title with a new gradient */
         .creme-title {
-            font-size: 3.5rem;
-            font-weight: bold;
+            font-size: 4rem;
+            font-weight: 700;
             padding-bottom: 0.5rem;
-            background: -webkit-linear-gradient(45deg, #a0c4ff, #ffafcc);
+            background: -webkit-linear-gradient(45deg, #EABBAA, #D4A3A3);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+        }
+        
+        /* Welcome Screen Card */
+        .welcome-card {
+            background-color: #FFFFFF;
+            padding: 2.5rem;
+            border-radius: 15px;
+            box-shadow: 0 4px M(0,0,0,0.05);
+            border: 1px solid #F5EADD;
         }
 
         /* Buttons */
         .stButton button {
-            background-color: #BDE0FE; /* Soft blue */
-            color: #283618; /* Dark olive green for contrast */
+            background-color: #A68A64; /* Muted coffee brown */
+            color: #FFFFFF;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
+            padding: 12px 20px;
+            font-weight: 500;
             transition: all 0.2s ease-in-out;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         .stButton button:hover {
-            background-color: #FFC8DD; /* Soft pink on hover */
-            transform: scale(1.02);
+            background-color: #5E454B; /* Darker brown on hover */
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
         }
         .stButton button:active {
-            background-color: #FFAFCC;
+            background-color: #5E454B;
+            transform: translateY(0);
         }
         
         /* Text Inputs & Select Boxes */
         .stTextInput input, .stSelectbox div[data-baseweb="select"] > div {
-            background-color: #FFFFFF;
-            border: 1px solid #D0D0D0;
-            border-radius: 8px;
-            color: #4A4A4A;
+            background-color: #FDF5E6; /* Match app background */
+            border: 1px solid #EAE0D5;
+            border-radius: 10px;
+            color: #5E454B;
         }
         
         /* Chat Area */
         .stChatInput {
-            background-color: #FFF8E7;
+            background-color: #FDF5E6;
+            border-top: 2px solid #F5EADD;
         }
-        [data-testid="stChatMessage"] {
+
+        /* Custom Chat Bubbles */
+        .chat-bubble {
+            padding: 0.8rem 1.2rem;
+            border-radius: 20px;
+            margin-bottom: 0.5rem;
+            max-width: 75%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+            display: inline-block; /* Allows bubble to fit content */
+        }
+        .chat-bubble.user {
             background-color: #FFFFFF;
-            border-radius: 10px;
-            padding: 1rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border: 1px solid #F5EADD;
+            border-bottom-left-radius: 5px;
         }
-        
-        /* Expander styling */
-        .st-emotion-cache-1h9usn1 {
-            border-color: #E0E0E0;
+        .chat-bubble.current-user {
+            background-color: #D4A3A3; /* A soft, dusty rose */
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+        .message-container {
+            display: flex;
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+        .message-container.current-user {
+            justify-content: flex-end; /* Align to the right */
+        }
+        .message-container.user {
+            justify-content: flex-start; /* Align to the left */
         }
     </style>
 """, unsafe_allow_html=True)
 
 
-# --- Database Setup ---
+# --- Database Setup and Helpers ---
 conn = st.connection("chat_db", type="sql", url="sqlite:///creme_app.db", ttl=0)
 
 def init_db():
     """Initializes the database with required tables and default admin user."""
     with conn.session as s:
-        # User table
-        s.execute(text("""
-            CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY, hashed_password TEXT NOT NULL,
-                avatar TEXT, role TEXT DEFAULT 'user', status TEXT DEFAULT 'active'
-            );
-        """))
-        # Messages table
-        s.execute(text("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY, username TEXT, avatar TEXT,
-                message TEXT, timestamp DATETIME, sentiment REAL DEFAULT 0.0
-            );
-        """))
-        # NEW: Table for app-wide settings
-        s.execute(text("""
-            CREATE TABLE IF NOT EXISTS app_state (
-                key TEXT PRIMARY KEY, value TEXT
-            );
-        """))
-        # NEW: Table for tracking muted users
-        s.execute(text("""
-            CREATE TABLE IF NOT EXISTS muted_users (
-                username TEXT PRIMARY KEY, muted_until DATETIME NOT NULL
-            );
-        """))
-
-        # Ensure default admin exists
+        s.execute(text("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, hashed_password TEXT NOT NULL, avatar TEXT, role TEXT DEFAULT 'user', status TEXT DEFAULT 'active');"))
+        s.execute(text("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, username TEXT, avatar TEXT, message TEXT, timestamp DATETIME, sentiment REAL DEFAULT 0.0);"))
+        s.execute(text("CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT);"))
+        s.execute(text("CREATE TABLE IF NOT EXISTS muted_users (username TEXT PRIMARY KEY, muted_until DATETIME NOT NULL);"))
+        
         admin_user = s.execute(text("SELECT * FROM users WHERE username = :user;"), params=dict(user=SUPER_ADMIN_USERNAME)).fetchone()
         if not admin_user:
             hashed_pass = hash_password(SUPER_ADMIN_DEFAULT_PASS)
-            s.execute(text("""
-                INSERT INTO users (username, hashed_password, avatar, role, status)
-                VALUES (:user, :hp, '👑', 'admin', 'active');
-            """), params=dict(user=SUPER_ADMIN_USERNAME, hp=hashed_pass))
-
-        # NEW: Initialize default app state values if they don't exist
+            s.execute(text("INSERT INTO users (username, hashed_password, avatar, role, status) VALUES (:user, :hp, '👑', 'admin', 'active');"), params=dict(user=SUPER_ADMIN_USERNAME, hp=hashed_pass))
+        
         s.execute(text("INSERT OR IGNORE INTO app_state (key, value) VALUES ('chat_mute_until', '2000-01-01 00:00:00');"))
         s.execute(text("INSERT OR IGNORE INTO app_state (key, value) VALUES ('guest_login_disabled', 'false');"))
         s.commit()
 
-
-# --- Helper Functions ---
 def hash_password(password):
     return hashlib.sha256((password + APP_SALT).encode()).hexdigest()
 
@@ -174,37 +183,40 @@ def get_sentiment_emoji(score):
 
 # --- UI Screens ---
 def show_welcome_screen():
-    st.markdown(f'<p class="creme-title">Welcome to {APP_NAME}</p>', unsafe_allow_html=True)
-    st.caption("A soft place to land your thoughts.")
-    st.write("")
-    col1, col2, col3 = st.columns(3)
-
-    if col1.button("🔒 Login", use_container_width=True):
-        st.session_state.screen = "login"
-        st.rerun()
-    if col2.button("✍️ Register", use_container_width=True):
-        st.session_state.screen = "register"
-        st.rerun()
+    _, center_col, _ = st.columns([1, 1.5, 1])
+    with center_col:
+        st.markdown(f'<div style="text-align: center;"><p class="creme-title">{APP_NAME}</p></div>', unsafe_allow_html=True)
+        st.subheader("A soft place to land your thoughts.", anchor=False, divider="rainbow")
+        st.write("")
     
-    # FIX: Set ttl=0 to ensure the latest state is always fetched from the DB.
-    guest_disabled_df = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'", ttl=0)
-    guest_disabled = guest_disabled_df.iloc[0]['value'] == 'true'
-    
-    if not guest_disabled:
-        if col3.button("👤 Continue as Guest", use_container_width=True):
-            st.session_state.screen = "guest_setup"
-            st.rerun()
-    else:
-        with col3:
-            st.info("Guest login is temporarily disabled by an administrator.", icon="🚫")
+    col1, col2 = st.columns([1.5, 1], gap="large")
+    with col1:
+        st.write("Join our cozy corner of the internet. Share your ideas, catch up with friends, or simply unwind. Messages here are ephemeral, disappearing after an hour to keep things fresh and light.")
 
+    with col2:
+        st.markdown('<div class="welcome-card">', unsafe_allow_html=True)
+        st.subheader("Get Started", anchor=False)
+        if st.button("🔒 Login", use_container_width=True):
+            st.session_state.screen = "login"; st.rerun()
+        if st.button("✍️ Register", use_container_width=True):
+            st.session_state.screen = "register"; st.rerun()
+        
+        guest_disabled_df = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'", ttl=0)
+        guest_disabled = guest_disabled_df.iloc[0]['value'] == 'true'
+        
+        if not guest_disabled:
+            if st.button("👤 Continue as Guest", use_container_width=True):
+                st.session_state.screen = "guest_setup"; st.rerun()
+        else:
+            st.info("Guest login is temporarily disabled.", icon="🚫")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def show_login_screen():
-    st.header("Login to Your Account")
+    st.markdown(f'<p class="creme-title" style="text-align: center; font-size: 3rem;">Login</p>', unsafe_allow_html=True)
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login")
+        username = st.text_input("Username", placeholder="Your username")
+        password = st.text_input("Password", type="password", placeholder="Your password")
+        submitted = st.form_submit_button("Login", use_container_width=True)
         if submitted:
             with conn.session as s:
                 user = s.execute(text("SELECT * FROM users WHERE username = :u;"), params=dict(u=username)).fetchone()
@@ -224,18 +236,17 @@ def show_login_screen():
                     st.rerun()
             else:
                 st.error("Invalid username or password.")
-    if st.button("← Back to Welcome"):
+    if st.button("← Back to Welcome", use_container_width=True):
         st.session_state.screen = "welcome"
         st.rerun()
 
-
 def show_register_screen():
-    st.header("Create a New Account")
+    st.markdown(f'<p class="creme-title" style="text-align: center; font-size: 3rem;">Register</p>', unsafe_allow_html=True)
     with st.form("register_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        username = st.text_input("Username", placeholder="Choose a unique username")
+        password = st.text_input("Password", type="password", placeholder="Choose a secure password")
         avatar_label = st.selectbox("Choose Your Avatar", options=list(AVATARS.keys()))
-        submitted = st.form_submit_button("Register")
+        submitted = st.form_submit_button("Register", use_container_width=True)
         if submitted:
             if not username or not password:
                 st.warning("Please fill out all fields.")
@@ -252,19 +263,17 @@ def show_register_screen():
                 except Exception as e:
                     if "UNIQUE constraint failed" in str(e):
                         st.error("Username already exists.")
-                    else:
-                        st.error(f"An error occurred: {e}")
-    if st.button("← Back to Welcome"):
+                    else: st.error(f"An error occurred: {e}")
+    if st.button("← Back to Welcome", use_container_width=True):
         st.session_state.screen = "welcome"
         st.rerun()
 
-
 def show_guest_setup_screen():
-    st.header("Enter as a Guest")
+    st.markdown(f'<p class="creme-title" style="text-align: center; font-size: 3rem;">Guest Setup</p>', unsafe_allow_html=True)
     with st.form("guest_form"):
-        username = st.text_input("Guest Username")
+        username = st.text_input("Guest Username", placeholder="Enter a temporary name")
         avatar_label = st.selectbox("Choose Your Avatar", options=list(AVATARS.keys()))
-        submitted = st.form_submit_button("Enter Chat")
+        submitted = st.form_submit_button("Enter Chat", use_container_width=True)
         if submitted:
             if not username:
                 st.warning("Please enter a username.")
@@ -275,17 +284,16 @@ def show_guest_setup_screen():
                 st.session_state.role = "guest"
                 st.session_state.screen = "chat"
                 st.rerun()
-    if st.button("← Back to Welcome"):
+    if st.button("← Back to Welcome", use_container_width=True):
         st.session_state.screen = "welcome"
         st.rerun()
-
 
 def show_change_password_form(username_to_change, is_admin_reset=False):
     form_key = f"change_pass_{username_to_change}"
     if is_admin_reset:
         st.write(f"Set a new password for '{username_to_change}':")
     else:
-        st.subheader("🔑 Change Your Password")
+        st.subheader("🔑 Change Your Password", anchor=False)
     with st.form(form_key):
         if not is_admin_reset:
             current_password = st.text_input("Current Password", type="password")
@@ -294,160 +302,110 @@ def show_change_password_form(username_to_change, is_admin_reset=False):
         submitted = st.form_submit_button("Change Password")
         if submitted:
             if not is_admin_reset:
-                with conn.session as s:
-                    user = s.execute(text("SELECT hashed_password FROM users WHERE username = :u"), params=dict(u=username_to_change)).fetchone()
+                with conn.session as s: user = s.execute(text("SELECT hashed_password FROM users WHERE username = :u"), params=dict(u=username_to_change)).fetchone()
                 if not verify_password(user.hashed_password, current_password):
-                    st.error("Current password is incorrect.")
-                    return
-            if new_password != confirm_password:
-                st.error("New passwords do not match.")
-            elif len(new_password) < 6:
-                st.error("New password must be at least 6 characters long.")
+                    st.error("Current password is incorrect."); return
+            if new_password != confirm_password: st.error("New passwords do not match.")
+            elif len(new_password) < 6: st.error("New password must be at least 6 characters long.")
             else:
                 new_hashed_password = hash_password(new_password)
                 with conn.session as s:
                     s.execute(text("UPDATE users SET hashed_password = :hp WHERE username = :u"), params=dict(hp=new_hashed_password, u=username_to_change))
                     s.commit()
                 st.success(f"Password for '{username_to_change}' changed successfully!")
-                if not is_admin_reset:
-                    st.session_state.admin_using_default_pass = False
-                time.sleep(1)
-                st.rerun()
+                if not is_admin_reset: st.session_state.admin_using_default_pass = False
+                time.sleep(1); st.rerun()
 
-# --- ADMIN DASHBOARD (HEAVILY MODIFIED) ---
 def show_admin_dashboard():
-    st.subheader("🛡️ Admin Dashboard")
-    st.write("Moderate users and manage the chat room.")
-    
-    # --- Global Chat Controls ---
-    st.markdown("---")
-    st.subheader("Global Chat Controls")
+    with st.expander("🌐 **Global Chat Controls**", expanded=True):
+        mute_status_df = conn.query("SELECT value FROM app_state WHERE key = 'chat_mute_until' LIMIT 1", ttl=0)
+        chat_mute_until = pd.to_datetime(mute_status_df['value'][0])
+        
+        if chat_mute_until > datetime.now():
+            st.warning(f"Chat is globally muted until {chat_mute_until.strftime('%H:%M:%S')}", icon="🔇")
+            if st.button("Lift Mute", use_container_width=True):
+                with conn.session as s: s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=datetime.now() - timedelta(minutes=1))); s.commit()
+                st.rerun()
+        else:
+            with st.form("mute_chat_form"):
+                duration_map = {"5 Minutes": 5, "15 Minutes": 15, "1 Hour": 60, "8 Hours": 480}
+                duration = st.selectbox("Select mute duration:", options=duration_map.keys())
+                submitted = st.form_submit_button("Mute Entire Chat")
+                if submitted:
+                    mute_end_time = datetime.now() + timedelta(minutes=duration_map[duration])
+                    with conn.session as s: s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=mute_end_time)); s.commit()
+                    st.rerun()
 
-    # Chat-wide mute control
-    mute_status_df = conn.query("SELECT value FROM app_state WHERE key = 'chat_mute_until' LIMIT 1", ttl=0)
-    chat_mute_until = pd.to_datetime(mute_status_df['value'][0])
-    
-    if chat_mute_until > datetime.now():
-        st.warning(f"Chat is globally muted until {chat_mute_until.strftime('%Y-%m-%d %H:%M:%S')}", icon="🔇")
-        if st.button("Lift Chat-Wide Mute", use_container_width=True):
-            with conn.session as s:
-                s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=datetime.now() - timedelta(minutes=1)))
-                s.commit()
-            st.rerun()
-    else:
-        st.success("Chat is currently active.", icon="✅")
-        with st.form("mute_chat_form"):
-            duration_map = {"5 Minutes": 5, "15 Minutes": 15, "1 Hour": 60, "8 Hours": 480}
-            duration = st.selectbox("Select mute duration:", options=duration_map.keys())
-            submitted = st.form_submit_button("Mute Entire Chat")
-            if submitted:
-                mute_end_time = datetime.now() + timedelta(minutes=duration_map[duration])
-                with conn.session as s:
-                    s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=mute_end_time))
-                    s.commit()
+        guest_disabled_val = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'", ttl=0).iloc[0]['value']
+        if guest_disabled_val == 'true':
+            if st.button("✅ Enable Guest Login", use_container_width=True):
+                with conn.session as s: s.execute(text("UPDATE app_state SET value='false' WHERE key='guest_login_disabled'")); s.commit()
+                st.rerun()
+        else:
+            if st.button("🚫 Disable Guest Login", use_container_width=True, type="primary"):
+                with conn.session as s: s.execute(text("UPDATE app_state SET value='true' WHERE key='guest_login_disabled'")); s.commit()
                 st.rerun()
 
-    # Disable guest login control
-    guest_disabled_val = conn.query("SELECT value FROM app_state WHERE key = 'guest_login_disabled'", ttl=0).iloc[0]['value']
-    guest_login_disabled = guest_disabled_val == 'true'
+        st.divider()
+        if st.session_state.get("confirm_delete_all_messages", False):
+            st.warning("**Are you sure?** This will permanently delete all messages.", icon="⚠️")
+            c1, c2 = st.columns(2)
+            if c1.button("Yes, Delete Everything", use_container_width=True, type="primary"):
+                with conn.session as s: s.execute(text("DELETE FROM messages;")); s.commit()
+                st.session_state.confirm_delete_all_messages = False
+                st.toast("Chat history cleared!")
+                time.sleep(1); st.rerun()
+            if c2.button("Cancel", use_container_width=True):
+                st.session_state.confirm_delete_all_messages = False; st.rerun()
+        else:
+            if st.button("🗑️ Clear All Messages", use_container_width=True):
+                st.session_state.confirm_delete_all_messages = True; st.rerun()
 
-    if guest_login_disabled:
-        if st.button("✅ Enable Guest Login", use_container_width=True):
-            with conn.session as s: s.execute(text("UPDATE app_state SET value='false' WHERE key='guest_login_disabled'")); s.commit()
-            st.rerun()
-    else:
-        if st.button("🚫 Disable Guest Login", use_container_width=True, type="primary"):
-            with conn.session as s: s.execute(text("UPDATE app_state SET value='true' WHERE key='guest_login_disabled'")); s.commit()
-            st.rerun()
-
-    # FIX: Reworked "Clear all messages" to be more robust using session_state for confirmation.
-    st.divider()
-    if st.session_state.get("confirm_delete_all_messages", False):
-        st.warning("**Are you sure?** This will permanently delete all messages.", icon="⚠️")
-        c1, c2 = st.columns(2)
-        if c1.button("Yes, Delete Everything", use_container_width=True, type="primary"):
-            with conn.session as s:
-                s.execute(text("DELETE FROM messages;"))
-                s.commit()
-            st.session_state.confirm_delete_all_messages = False
-            st.toast("Chat history cleared!")
-            time.sleep(1)
-            st.rerun()
-        if c2.button("Cancel", use_container_width=True):
-            st.session_state.confirm_delete_all_messages = False
-            st.rerun()
-    else:
-        if st.button("🚨 Clear All Messages", use_container_width=True):
-            st.session_state.confirm_delete_all_messages = True
-            st.rerun()
-
-
-    # --- User Management ---
-    st.markdown("---")
-    st.subheader("User Management")
-    
-    # Get registered users
-    registered_users_df = conn.query("SELECT username, avatar, role, status FROM users WHERE username != :admin ORDER BY username;", params=dict(admin=SUPER_ADMIN_USERNAME), ttl=10)
-    
-    # Get guest users active in the last hour
-    hour_ago = datetime.now() - timedelta(hours=1)
-    guest_users_df = conn.query(
-        "SELECT DISTINCT username, avatar FROM messages WHERE username LIKE '%(Guest)' AND timestamp > :time ORDER BY username;",
-        params=dict(time=hour_ago), ttl=10
-    )
-    guest_users_df['role'] = 'guest'
-    guest_users_df['status'] = 'active'
-    
-    # Combine lists
-    all_users_df = pd.concat([registered_users_df, guest_users_df]).drop_duplicates(subset=['username'])
-    muted_users_df = conn.query("SELECT username, muted_until FROM muted_users WHERE muted_until > :now", params=dict(now=datetime.now()), ttl=5)
-    muted_usernames = list(muted_users_df['username'])
-
-    for _, user in all_users_df.iterrows():
-        is_muted = user.username in muted_usernames
-        status_text = f"Status: **{user.status.capitalize()}**"
-        if is_muted: status_text += " / **Muted** 🔇"
-
-        st.markdown(f"**{user.avatar} {user.username}** (`{user.role}`) - {status_text}")
+    with st.expander("👥 **User Management**"):
+        registered_users = conn.query("SELECT username, avatar, role, status FROM users WHERE username != :admin ORDER BY username;", params=dict(admin=SUPER_ADMIN_USERNAME), ttl=10)
+        guest_users = conn.query("SELECT DISTINCT username, avatar FROM messages WHERE username LIKE '%(Guest)' AND timestamp > :time;", params=dict(time=datetime.now() - timedelta(hours=1)), ttl=10)
+        guest_users['role'], guest_users['status'] = 'guest', 'active'
+        all_users = pd.concat([registered_users, guest_users]).drop_duplicates(subset=['username'])
+        muted_users = list(conn.query("SELECT username FROM muted_users WHERE muted_until > :now", params=dict(now=datetime.now()), ttl=5)['username'])
         
-        c1, c2, c3 = st.columns(3)
-        # --- Mute/Unmute Logic ---
-        with c1:
-            if is_muted:
-                if st.button("Unmute", key=f"unmute_{user.username}", use_container_width=True):
-                    with conn.session as s: s.execute(text("DELETE FROM muted_users WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                    st.rerun()
-            else:
-                with st.popover("Mute User", use_container_width=True):
-                    with st.form(f"mute_form_{user.username}"):
-                        duration_map = {"5 Minutes": 5, "1 Hour": 60, "24 Hours": 1440}
-                        duration = st.selectbox("Mute for:", options=duration_map.keys(), key=f"mute_dur_{user.username}")
-                        submitted = st.form_submit_button("Confirm Mute")
-                        if submitted:
-                            mute_end = datetime.now() + timedelta(minutes=duration_map[duration])
-                            with conn.session as s:
-                                s.execute(text("INSERT OR REPLACE INTO muted_users (username, muted_until) VALUES (:u, :end)"), params=dict(u=user.username, end=mute_end))
-                                s.commit()
-                            st.rerun()
-        
-        # --- Ban/Unban Logic (for registered users only) ---
-        if user.role != 'guest':
-            with c2:
-                if user.status == 'active':
-                    if st.button("Ban", key=f"ban_{user.username}", use_container_width=True, type="primary"):
-                        with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+        if all_users.empty:
+            st.write("No other active users found.")
+
+        for _, user in all_users.iterrows():
+            is_muted = user.username in muted_users
+            status_text = f"Status: **{user.status.capitalize()}**"
+            if is_muted: status_text += " / **Muted** 🔇"
+            st.markdown(f"**{user.avatar} {user.username}** (`{user.role}`)<br>{status_text}", unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if is_muted:
+                    if st.button("Unmute", key=f"unmute_{user.username}", use_container_width=True):
+                        with conn.session as s: s.execute(text("DELETE FROM muted_users WHERE username = :u"), params=dict(u=user.username)); s.commit()
                         st.rerun()
                 else:
-                    if st.button("Unban", key=f"unban_{user.username}", use_container_width=True):
-                        with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
-                        st.rerun()
-            with c3:
-                 with st.popover("Reset Pass", use_container_width=True):
-                    show_change_password_form(user.username, is_admin_reset=True)
-        st.markdown("---")
+                    with st.popover("Mute", use_container_width=True):
+                        with st.form(f"mute_form_{user.username}"):
+                            d_map = {"5 Minutes": 5, "1 Hour": 60, "24 Hours": 1440}
+                            dur = st.selectbox("Mute for:", options=d_map.keys(), key=f"mdur_{user.username}")
+                            if st.form_submit_button("Confirm Mute"):
+                                end = datetime.now() + timedelta(minutes=d_map[dur])
+                                with conn.session as s: s.execute(text("INSERT OR REPLACE INTO muted_users (username, muted_until) VALUES (:u, :end)"), params=dict(u=user.username, end=end)); s.commit()
+                                st.rerun()
+            if user.role != 'guest':
+                with c2:
+                    if user.status == 'active':
+                        if st.button("Ban", key=f"ban_{user.username}", use_container_width=True, type="primary"):
+                            with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                            st.rerun()
+                    else:
+                        if st.button("Unban", key=f"unban_{user.username}", use_container_width=True):
+                            with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user.username)); s.commit()
+                            st.rerun()
+                with c3:
+                    with st.popover("Reset Pass", use_container_width=True):
+                        show_change_password_form(user.username, is_admin_reset=True)
+            st.markdown("---")
 
-
-# --- Main Chat Screen (MODIFIED) ---
 def show_chat_screen():
     clear_old_messages()
     st_autorefresh(interval=5000, limit=None, key="chat_refresh")
@@ -456,54 +414,58 @@ def show_chat_screen():
         st.warning("🚨 **Security Alert:** You are using the default admin password. Please change it immediately.", icon="⚠️")
     
     with st.sidebar:
-        st.title(f"{st.session_state.avatar} {st.session_state.username}")
+        st.title(f"{st.session_state.avatar} {st.session_state.username}", anchor=False)
         st.caption(f"Role: {st.session_state.role.capitalize()}")
         if st.button("Log Out"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
         
         if st.session_state.role == 'admin':
             st.divider()
-            with st.expander("Admin Dashboard", expanded=False):
-                show_admin_dashboard()
+            st.subheader("🛡️ Admin Panel", anchor=False)
+            show_admin_dashboard()
             st.divider()
-            with st.expander("Change Your Password"):
+            with st.expander("🔑 Change Your Password"):
                 show_change_password_form(st.session_state.username)
 
-    st.markdown(f'<p class="creme-title">{APP_NAME}</p>', unsafe_allow_html=True)
-    st.caption("Messages are ephemeral and vanish after 1 hour.")
+    _, center_col, _ = st.columns([1, 6, 1])
+    with center_col:
+        st.markdown(f'<p class="creme-title" style="text-align:center; font-size: 3rem;">{APP_NAME}</p>', unsafe_allow_html=True)
+        st.caption("Messages are ephemeral and vanish after 1 hour.")
 
-    chat_container = st.container(height=500, border=False)
-    with chat_container:
-        messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
-        for _, row in messages_df.iterrows():
-            with st.chat_message(name=row["username"], avatar=row["avatar"]):
-                sentiment_emoji = get_sentiment_emoji(row['sentiment'])
-                st.markdown(f"**{row['username']}** {sentiment_emoji}")
-                st.write(row["message"])
-                ts = pd.to_datetime(row["timestamp"])
-                st.caption(f"_{ts.strftime('%b %d, %I:%M %p')}_")
+        chat_container = st.container(height=500, border=False)
+        with chat_container:
+            messages_df = conn.query("SELECT * FROM messages ORDER BY timestamp ASC;", ttl=0)
+            for _, row in messages_df.iterrows():
+                is_current_user = row["username"] == st.session_state.username
+                container_class = "current-user" if is_current_user else "user"
+                bubble_class = "current-user" if is_current_user else "user"
+                text_color = 'white' if is_current_user else '#5E454B'
+                
+                message_html = f"""
+                    <div class="message-container {container_class}">
+                        <div class="chat-bubble {bubble_class}">
+                            <b style="color: {text_color};">{row['avatar']} {row['username']} {get_sentiment_emoji(row['sentiment'])}</b>
+                            <p style="margin: 0; color: {text_color};">{row['message']}</p>
+                            <div style="font-size: 0.7rem; opacity: 0.8; text-align: right; color: {text_color};">
+                                {pd.to_datetime(row['timestamp']).strftime('%I:%M %p')}
+                            </div>
+                        </div>
+                    </div>"""
+                st.markdown(message_html, unsafe_allow_html=True)
 
-    # --- CHAT INPUT LOGIC (MODIFIED) ---
-    # Check for global mute
     mute_status = conn.query("SELECT value FROM app_state WHERE key = 'chat_mute_until' LIMIT 1", ttl=5).iloc[0]['value']
     is_globally_muted = pd.to_datetime(mute_status) > datetime.now()
-
-    # Check for individual mute
     user_mute_status = conn.query("SELECT muted_until FROM muted_users WHERE username = :u", params=dict(u=st.session_state.username), ttl=5)
     is_individually_muted = not user_mute_status.empty and pd.to_datetime(user_mute_status.iloc[0]['muted_until']) > datetime.now()
     
-    # Determine if chat input should be disabled
-    is_admin = st.session_state.role == 'admin'
-    chat_disabled = (is_globally_muted and not is_admin) or is_individually_muted
+    chat_disabled = (is_globally_muted and st.session_state.role != 'admin') or is_individually_muted
     
-    # Display appropriate message or input box
-    if is_globally_muted and not is_admin:
+    if is_globally_muted and st.session_state.role != 'admin':
         st.info("The chat is currently muted by an administrator. Please try again later.", icon="🔇")
     elif is_individually_muted:
         mute_end_time = pd.to_datetime(user_mute_status.iloc[0]['muted_until']).strftime('%I:%M %p')
-        st.error(f"You have been muted by an administrator. You can chat again after {mute_end_time}.", icon="🔇")
+        st.error(f"You have been muted. You can chat again after {mute_end_time}.", icon="🔇")
 
     prompt = st.chat_input("Share your thoughts...", disabled=chat_disabled)
     if prompt:
@@ -514,7 +476,6 @@ def show_chat_screen():
             s.commit()
         st.rerun()
 
-
 # --- Main App Logic ---
 def main():
     download_nltk_data()
@@ -524,16 +485,17 @@ def main():
         st.session_state.screen = "welcome"
 
     screen = st.session_state.screen
-    if screen == "welcome":
-        show_welcome_screen()
-    elif screen == "login":
-        show_login_screen()
-    elif screen == "register":
-        show_register_screen()
-    elif screen == "guest_setup":
-        show_guest_setup_screen()
+    
+    if screen in ["login", "register", "guest_setup"]:
+        _, center_col, _ = st.columns([2, 1.5, 2])
+        with center_col:
+            if screen == "login": show_login_screen()
+            elif screen == "register": show_register_screen()
+            elif screen == "guest_setup": show_guest_setup_screen()
     elif screen == "chat":
         show_chat_screen()
+    else:
+        show_welcome_screen()
 
 if __name__ == "__main__":
     main()
