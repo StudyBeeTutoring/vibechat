@@ -1,5 +1,6 @@
 # Fullstack Chat Application: "Aura"
 # A modern, secure, and feature-rich chat application built with Streamlit.
+# Version: No Expanders/Arrows
 
 import streamlit as st
 import pandas as pd
@@ -13,7 +14,6 @@ from textblob import TextBlob
 import nltk
 
 # --- Initial Setup: NLTK Data Download ---
-# This ensures the sentiment analysis tokenizer is available.
 @st.cache_resource
 def download_nltk_data():
     """Download the NLTK 'punkt' tokenizer if not already present."""
@@ -24,7 +24,6 @@ def download_nltk_data():
 
 # --- Constants and Configuration ---
 APP_NAME = "Aura"
-# It's highly recommended to set these in Streamlit's secrets management (secrets.toml)
 SUPER_ADMIN_USERNAME = st.secrets.get("SUPER_ADMIN_USERNAME", "admin")
 SUPER_ADMIN_DEFAULT_PASS = st.secrets.get("SUPER_ADMIN_DEFAULT_PASS", "aura_admin_123")
 APP_SALT = st.secrets.get("APP_SALT", "a_very_secret_and_secure_salt_string")
@@ -44,8 +43,8 @@ st.markdown("""
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
     <style>
-        /* Specific rule to fix icon rendering */
-        [data-testid="stSelectbox"] span, [data-testid="stExpanderHeader"] span {
+        /* Specific rule to fix icon rendering in select boxes */
+        [data-testid="stSelectbox"] span {
             font-family: 'Material Icons' !important;
         }
 
@@ -129,7 +128,7 @@ st.markdown("""
             padding: 0.9rem 1.3rem;
             border-radius: 25px;
             margin-bottom: 0.75rem;
-            max-width: 70%;
+            max-width: 95%; /* Adjusted for centered layout */
             box-shadow: 0 4px 10px rgba(0,0,0,0.05);
             display: inline-block;
             word-wrap: break-word;
@@ -349,64 +348,70 @@ def show_guest_setup_screen():
 
 def show_admin_dashboard():
     st.subheader("🛡️ Admin Panel", anchor=False)
-    with st.expander("🌐 Global Chat Controls", expanded=True):
-        app_state = get_app_state()
-        chat_mute_until = pd.to_datetime(app_state[app_state['key'] == 'chat_mute_until'].iloc[0]['value'])
-        
-        if chat_mute_until > datetime.now():
-            st.warning(f"Chat is globally muted until {chat_mute_until.strftime('%H:%M:%S')}", icon="🔇")
-            if st.button("Lift Mute"):
-                with conn.session as s: s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=datetime.now() - timedelta(minutes=1))); s.commit()
-                st.rerun()
-        else:
-            duration = st.selectbox("Mute entire chat for:", options=["5 Minutes", "15 Minutes", "1 Hour"], key="global_mute_dur")
-            if st.button("Mute Entire Chat"):
-                duration_map = {"5 Minutes": 5, "15 Minutes": 15, "1 Hour": 60}
-                mute_end = datetime.now() + timedelta(minutes=duration_map[duration])
-                with conn.session as s: s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=mute_end)); s.commit()
-                st.rerun()
-
-        guest_disabled = app_state[app_state['key'] == 'guest_login_disabled'].iloc[0]['value'] == 'true'
-        if guest_disabled:
-            if st.button("✅ Enable Guest Login"):
-                with conn.session as s: s.execute(text("UPDATE app_state SET value='false' WHERE key='guest_login_disabled'")); s.commit()
-                st.rerun()
-        else:
-            if st.button("🚫 Disable Guest Login", type="primary"):
-                with conn.session as s: s.execute(text("UPDATE app_state SET value='true' WHERE key='guest_login_disabled'")); s.commit()
-                st.rerun()
     
-    with st.expander("👥 User Management"):
-        all_users = get_all_users_for_admin()
-        muted_users = conn.query("SELECT username FROM muted_users WHERE muted_until > :now", params=dict(now=datetime.now()), ttl=5)['username'].tolist()
-        
-        if all_users.empty: st.write("No other active users found.")
-        
-        for _, user in all_users.iterrows():
-            is_muted = user['username'] in muted_users
-            st.markdown(f"**{user['avatar']} {user['username']}** (`{user['role']}`)")
-            c1, c2 = st.columns(2)
-            with c1:
-                if is_muted:
-                    if st.button("Unmute", key=f"unmute_{user['username']}", use_container_width=True):
-                        with conn.session as s: s.execute(text("DELETE FROM muted_users WHERE username = :u"), params=dict(u=user['username'])); s.commit()
+    # --- Global Chat Controls ---
+    st.markdown("##### Global Chat Controls")
+    app_state = get_app_state()
+    chat_mute_until = pd.to_datetime(app_state[app_state['key'] == 'chat_mute_until'].iloc[0]['value'])
+    
+    if chat_mute_until > datetime.now():
+        st.warning(f"Chat is globally muted until {chat_mute_until.strftime('%H:%M:%S')}", icon="🔇")
+        if st.button("Lift Mute", use_container_width=True):
+            with conn.session as s: s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=datetime.now() - timedelta(minutes=1))); s.commit()
+            st.rerun()
+    else:
+        duration = st.selectbox("Mute entire chat for:", options=["5 Minutes", "15 Minutes", "1 Hour"], key="global_mute_dur")
+        if st.button("Mute Entire Chat", use_container_width=True):
+            duration_map = {"5 Minutes": 5, "15 Minutes": 15, "1 Hour": 60}
+            mute_end = datetime.now() + timedelta(minutes=duration_map[duration])
+            with conn.session as s: s.execute(text("UPDATE app_state SET value = :val WHERE key = 'chat_mute_until'"), params=dict(val=mute_end)); s.commit()
+            st.rerun()
+
+    guest_disabled = app_state[app_state['key'] == 'guest_login_disabled'].iloc[0]['value'] == 'true'
+    if guest_disabled:
+        if st.button("✅ Enable Guest Login", use_container_width=True):
+            with conn.session as s: s.execute(text("UPDATE app_state SET value='false' WHERE key='guest_login_disabled'")); s.commit()
+            st.rerun()
+    else:
+        if st.button("🚫 Disable Guest Login", type="primary", use_container_width=True):
+            with conn.session as s: s.execute(text("UPDATE app_state SET value='true' WHERE key='guest_login_disabled'")); s.commit()
+            st.rerun()
+    
+    st.divider()
+
+    # --- User Management ---
+    st.markdown("##### User Management")
+    all_users = get_all_users_for_admin()
+    muted_users = conn.query("SELECT username FROM muted_users WHERE muted_until > :now", params=dict(now=datetime.now()), ttl=5)['username'].tolist()
+    
+    if all_users.empty: st.write("No other active users found.")
+    
+    for _, user in all_users.iterrows():
+        is_muted = user['username'] in muted_users
+        st.markdown(f"**{user['avatar']} {user['username']}** (`{user['role']}`)")
+        c1, c2 = st.columns(2)
+        with c1:
+            if is_muted:
+                if st.button("Unmute", key=f"unmute_{user['username']}", use_container_width=True):
+                    with conn.session as s: s.execute(text("DELETE FROM muted_users WHERE username = :u"), params=dict(u=user['username'])); s.commit()
+                    st.rerun()
+            else:
+                if st.button("Mute (15 min)", key=f"mute_{user['username']}", use_container_width=True):
+                    end = datetime.now() + timedelta(minutes=15)
+                    with conn.session as s: s.execute(text("INSERT OR REPLACE INTO muted_users (username, muted_until) VALUES (:u, :end)"), params=dict(u=user['username'], end=end)); s.commit()
+                    st.rerun()
+        if user['role'] != 'guest':
+            with c2:
+                if user['status'] == 'active':
+                    if st.button("Ban", key=f"ban_{user['username']}", type="primary", use_container_width=True):
+                        with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user['username'])); s.commit()
                         st.rerun()
                 else:
-                    if st.button("Mute (15 min)", key=f"mute_{user['username']}", use_container_width=True):
-                        end = datetime.now() + timedelta(minutes=15)
-                        with conn.session as s: s.execute(text("INSERT OR REPLACE INTO muted_users (username, muted_until) VALUES (:u, :end)"), params=dict(u=user['username'], end=end)); s.commit()
+                    if st.button("Unban", key=f"unban_{user['username']}", use_container_width=True):
+                        with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user['username'])); s.commit()
                         st.rerun()
-            if user['role'] != 'guest':
-                with c2:
-                    if user['status'] == 'active':
-                        if st.button("Ban", key=f"ban_{user['username']}", type="primary", use_container_width=True):
-                            with conn.session as s: s.execute(text("UPDATE users SET status = 'banned' WHERE username = :u"), params=dict(u=user['username'])); s.commit()
-                            st.rerun()
-                    else:
-                        if st.button("Unban", key=f"unban_{user['username']}", use_container_width=True):
-                            with conn.session as s: s.execute(text("UPDATE users SET status = 'active' WHERE username = :u"), params=dict(u=user['username'])); s.commit()
-                            st.rerun()
-            st.markdown("---")
+        st.markdown("---")
+
 
 def show_chat_screen():
     clear_old_messages()
@@ -422,7 +427,7 @@ def show_chat_screen():
         if st.session_state.role == 'admin':
             st.divider()
             if st.session_state.get("admin_using_default_pass", False):
-                st.warning("You're using the default admin password. Please change it below.", icon="⚠️")
+                st.warning("Using default admin password. Change it for security.", icon="⚠️")
             show_admin_dashboard()
     
     st.markdown(f'<p class="aura-title" style="font-size: 3rem;">{APP_NAME}</p>', unsafe_allow_html=True)
@@ -434,9 +439,10 @@ def show_chat_screen():
         align_class = "current-user" if is_current_user else "other-user"
         
         with chat_container:
-            col1, col2 = st.columns([1, 10]) if not is_current_user else st.columns([10, 1])
-            avatar_col = col1 if not is_current_user else col2
-            message_col = col2 if not is_current_user else col1
+            # A more robust way to create columns that avoids overlap
+            cols = st.columns([0.8, 10] if not is_current_user else [10, 0.8])
+            avatar_col = cols[0] if not is_current_user else cols[1]
+            message_col = cols[1] if not is_current_user else cols[0]
             
             with avatar_col:
                 st.markdown(f"<div class='avatar'>{row['avatar']}</div>", unsafe_allow_html=True)
